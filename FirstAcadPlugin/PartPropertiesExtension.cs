@@ -66,9 +66,9 @@ namespace FirstAcadPlugin
                     {
                         parts.Add(new DrawingPart
                         {
-                            DrawingName = drawingName,
+                            SourceDrawingName = drawingName,
                             PartName = partName,
-                            ObjectHandle = entity.Handle.ToString()
+                            SourceObjectHandle = entity.Handle.ToString()
                         });
                     }
                 }
@@ -171,7 +171,17 @@ namespace FirstAcadPlugin
             if (parts.Count == 0)
                 return 0;
 
-            return DatabaseService.SaveAllDrawingParts(parts);
+            int savedCount = 0;
+            foreach (var part in parts)
+            {
+                try
+                {
+                    DatabaseService.SavePart(part);
+                    savedCount++;
+                }
+                catch { }
+            }
+            return savedCount;
         }
 
         /// <summary>

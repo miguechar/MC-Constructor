@@ -118,6 +118,19 @@ namespace FirstAcadPlugin
             partsPanelSource.Items.Add(CreateLargeButton("View\nMetadata", "MC_VIEW_PART_METADATA"));
             partsPanelSource.Items.Add(CreateLargeButton("List\nParts", "MC_LIST_PARTS"));
 
+            // ========== REFERENCES PANEL ==========
+            RibbonPanelSource refsPanelSource = new RibbonPanelSource();
+            refsPanelSource.Title = "References";
+
+            RibbonPanel refsPanel = new RibbonPanel();
+            refsPanel.Source = refsPanelSource;
+            tab.Panels.Add(refsPanel);
+
+            refsPanelSource.Items.Add(CreateLargeButton("Insert\nPart", "MC_INSERT_PART"));
+            refsPanelSource.Items.Add(CreateLargeButton("Override\nPart", "MC_OVERRIDE_PART"));
+            refsPanelSource.Items.Add(CreateLargeButton("Update\nAll Parts", "MC_UPDATE_ALL_PARTS"));
+            refsPanelSource.Items.Add(CreateLargeButton("List DB\nParts", "MC_LIST_DB_PARTS"));
+
             // ========== TOOLS PANEL ==========
             RibbonPanelSource toolsPanelSource = new RibbonPanelSource();
             toolsPanelSource.Title = "Tools";

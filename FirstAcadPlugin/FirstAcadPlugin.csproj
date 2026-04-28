@@ -12,6 +12,7 @@
     <TargetFrameworkVersion>v4.7.2</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <Deterministic>true</Deterministic>
+    <LangVersion>7.3</LangVersion>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
     <DebugSymbols>true</DebugSymbols>
@@ -110,8 +111,10 @@
   <ItemGroup>
     <Compile Include="Commands.cs" />
     <Compile Include="DatabaseService.cs" />
+    <Compile Include="InsertPartDialog.cs" />
     <Compile Include="MetadataPalette.cs" />
     <Compile Include="MyPlugin.cs" />
+    <Compile Include="PartGeometryHelper.cs" />
     <Compile Include="PartMetadataDialog.cs" />
     <Compile Include="PartPropertiesExtension.cs" />
     <Compile Include="ProjectDialog.cs" />

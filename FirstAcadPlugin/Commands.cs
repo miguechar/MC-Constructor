@@ -1,38 +1,25 @@
 using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
+using Autodesk.AutoCAD.Geometry;
 using Autodesk.AutoCAD.Runtime;
 using System;
+using System.Collections.Generic;
+using System.IO;
 
 namespace FirstAcadPlugin
 {
-    /// <summary>
-    /// Contains all the AutoCAD commands for the MC Constructor plugin.
-    /// Each method with [CommandMethod] becomes a command you can type in AutoCAD.
-    /// </summary>
     public class Commands
     {
-        // This is our unique application name for XData
-        // XData is how AutoCAD stores custom data on objects
         public const string AppName = "MC_CONSTRUCTOR";
 
-        /// <summary>
-        /// The MC_GREET command - writes "Hello World!" to the AutoCAD console.
-        /// </summary>
         [CommandMethod("MC_GREET")]
         public void Greet()
         {
             var doc = Application.DocumentManager.MdiActiveDocument;
-            var editor = doc.Editor;
-
-            editor.WriteMessage("\nHello World!");
+            doc.Editor.WriteMessage("\nHello World!");
         }
 
-        /// <summary>
-        /// The MC_ADD_PART_METADATA command.
-        /// Allows you to select a 3D solid and add metadata (Part Name) to it.
-        /// The metadata is stored as XData directly on the object.
-        /// </summary>
         [CommandMethod("MC_ADD_PART_METADATA")]
         public void AddPartMetadata()
         {
@@ -40,251 +27,171 @@ namespace FirstAcadPlugin
             var db = doc.Database;
             var editor = doc.Editor;
 
-            // Step 1: Ask the user to select a 3D solid
             var options = new PromptEntityOptions("\nSelect a 3D solid to add metadata: ");
             options.SetRejectMessage("\nMust be a 3D solid.");
             options.AddAllowedClass(typeof(Solid3d), true);
 
             var result = editor.GetEntity(options);
+            if (result.Status != PromptStatus.OK) { editor.WriteMessage("\nCommand cancelled."); return; }
 
-            if (result.Status != PromptStatus.OK)
-            {
-                editor.WriteMessage("\nCommand cancelled.");
-                return;
-            }
-
-            // Step 2: Show the metadata dialog
             var dialog = new PartMetadataDialog();
-            var dialogResult = Application.ShowModalWindow(dialog);
+            if (Application.ShowModalWindow(dialog) != true || string.IsNullOrEmpty(dialog.PartName))
+            { editor.WriteMessage("\nCommand cancelled."); return; }
 
-            if (dialogResult != true || string.IsNullOrEmpty(dialog.PartName))
+            using (var tr = db.TransactionManager.StartTransaction())
             {
-                editor.WriteMessage("\nCommand cancelled.");
-                return;
-            }
+                var entity = tr.GetObject(result.ObjectId, OpenMode.ForWrite) as Entity;
+                if (entity == null) { editor.WriteMessage("\nError accessing object."); return; }
 
-            // Step 3: Store the metadata on the selected object
-            using (var transaction = db.TransactionManager.StartTransaction())
-            {
-                // Get the selected entity
-                var entity = transaction.GetObject(result.ObjectId, OpenMode.ForWrite) as Entity;
+                RegisterApp(db, tr);
 
-                if (entity == null)
-                {
-                    editor.WriteMessage("\nError: Could not access the selected object.");
-                    return;
-                }
-
-                // Register our application name for XData (required before using it)
-                RegisterApp(db, transaction);
-
-                // Create the XData to store
-                // XData is a list of TypedValue pairs
                 var xdata = new ResultBuffer(
-                    // The application name (required as first item)
                     new TypedValue((int)DxfCode.ExtendedDataRegAppName, AppName),
-                    // Store "PartName" as a label
                     new TypedValue((int)DxfCode.ExtendedDataAsciiString, "PartName"),
-                    // Store the actual part name value
                     new TypedValue((int)DxfCode.ExtendedDataAsciiString, dialog.PartName)
                 );
 
-                // Attach the XData to the entity
                 entity.XData = xdata;
+                tr.Commit();
 
-                // Commit the transaction (save changes)
-                transaction.Commit();
-
-                editor.WriteMessage($"\nMetadata added successfully!");
-                editor.WriteMessage($"\n  Part Name: {dialog.PartName}");
+                editor.WriteMessage($"\nMetadata added: {dialog.PartName}");
             }
         }
 
-        /// <summary>
-        /// Registers our application name in the drawing's RegApp table.
-        /// This is required before we can use XData with our app name.
-        /// </summary>
-        private void RegisterApp(Database db, Transaction transaction)
+        private void RegisterApp(Database db, Transaction tr)
         {
-            var regAppTable = transaction.GetObject(db.RegAppTableId, OpenMode.ForWrite) as RegAppTable;
-
-            // Only add if it doesn't already exist
+            var regAppTable = tr.GetObject(db.RegAppTableId, OpenMode.ForWrite) as RegAppTable;
             if (!regAppTable.Has(AppName))
             {
-                var regApp = new RegAppTableRecord();
-                regApp.Name = AppName;
+                var regApp = new RegAppTableRecord { Name = AppName };
                 regAppTable.Add(regApp);
-                transaction.AddNewlyCreatedDBObject(regApp, true);
+                tr.AddNewlyCreatedDBObject(regApp, true);
             }
         }
 
-        /// <summary>
-        /// The MC_VIEW_PART_METADATA command.
-        /// Select a 3D solid to view its stored metadata.
-        /// </summary>
         [CommandMethod("MC_VIEW_PART_METADATA")]
         public void ViewPartMetadata()
         {
             var doc = Application.DocumentManager.MdiActiveDocument;
-            var db = doc.Database;
             var editor = doc.Editor;
 
-            // Ask the user to select a 3D solid
-            var options = new PromptEntityOptions("\nSelect a 3D solid to view metadata: ");
+            var options = new PromptEntityOptions("\nSelect a 3D solid: ");
             options.SetRejectMessage("\nMust be a 3D solid.");
             options.AddAllowedClass(typeof(Solid3d), true);
 
             var result = editor.GetEntity(options);
+            if (result.Status != PromptStatus.OK) return;
 
-            if (result.Status != PromptStatus.OK)
+            using (var tr = doc.Database.TransactionManager.StartTransaction())
             {
-                editor.WriteMessage("\nCommand cancelled.");
-                return;
-            }
-
-            using (var transaction = db.TransactionManager.StartTransaction())
-            {
-                var entity = transaction.GetObject(result.ObjectId, OpenMode.ForRead) as Entity;
-
-                if (entity == null)
-                {
-                    editor.WriteMessage("\nError: Could not access the selected object.");
-                    return;
-                }
-
-                // Get XData for our application
-                var xdata = entity.GetXDataForApplication(AppName);
+                var entity = tr.GetObject(result.ObjectId, OpenMode.ForRead) as Entity;
+                var xdata = entity?.GetXDataForApplication(AppName);
 
                 if (xdata == null)
-                {
-                    editor.WriteMessage("\nNo metadata found on this object.");
-                    editor.WriteMessage("\nUse MC_ADD_PART_METADATA to add metadata.");
-                    return;
-                }
+                { editor.WriteMessage("\nNo metadata found."); return; }
 
-                // Parse and display the XData
                 editor.WriteMessage("\n--- Part Metadata ---");
-
                 var values = xdata.AsArray();
                 for (int i = 1; i < values.Length - 1; i += 2)
-                {
-                    string label = values[i].Value.ToString();
-                    string value = values[i + 1].Value.ToString();
-                    editor.WriteMessage($"\n  {label}: {value}");
-                }
-
+                    editor.WriteMessage($"\n  {values[i].Value}: {values[i + 1].Value}");
                 editor.WriteMessage("\n---------------------");
             }
         }
 
-        /// <summary>
-        /// The MC_SHOW_METADATA_PALETTE command.
-        /// Shows or hides the metadata palette.
-        /// </summary>
         [CommandMethod("MC_SHOW_METADATA_PALETTE")]
-        public void ShowMetadataPalette()
-        {
-            MetadataPalette.Toggle();
-        }
+        public void ShowMetadataPalette() => MetadataPalette.Toggle();
 
-        // ========== DATABASE COMMANDS ==========
-
-        /// <summary>
-        /// The MC_OPEN_PROJECT command.
-        /// Opens a dialog to connect to the database and select a project.
-        /// </summary>
         [CommandMethod("MC_OPEN_PROJECT")]
         public void OpenProject()
         {
-            var doc = Application.DocumentManager.MdiActiveDocument;
-            var editor = doc.Editor;
-
+            var editor = Application.DocumentManager.MdiActiveDocument.Editor;
             var dialog = new ProjectDialog();
-            var result = Application.ShowModalWindow(dialog);
 
-            if (result == true && dialog.SelectedProject != null)
+            if (Application.ShowModalWindow(dialog) == true && dialog.SelectedProject != null)
             {
                 DatabaseService.SetCurrentProject(dialog.SelectedProject);
                 editor.WriteMessage($"\nProject opened: {dialog.SelectedProject.Name}");
-                editor.WriteMessage($"\nProject ID: {dialog.SelectedProject.Id}");
-
-                // Update the palette to show the current project
                 MetadataPalette.RefreshProjectInfo();
-            }
-            else
-            {
-                editor.WriteMessage("\nNo project selected.");
             }
         }
 
-        /// <summary>
-        /// The MC_CONFIG_DATABASE command.
-        /// Opens a dialog to configure the database connection.
-        /// </summary>
         [CommandMethod("MC_CONFIG_DATABASE")]
         public void ConfigDatabase()
         {
-            var doc = Application.DocumentManager.MdiActiveDocument;
-            var editor = doc.Editor;
-
             var dialog = new DatabaseConfigDialog();
-            var result = Application.ShowModalWindow(dialog);
-
-            if (result == true)
-            {
-                editor.WriteMessage("\nDatabase configuration saved.");
-            }
+            if (Application.ShowModalWindow(dialog) == true)
+                Application.DocumentManager.MdiActiveDocument.Editor.WriteMessage("\nDatabase config saved.");
         }
 
-        /// <summary>
-        /// The MC_SAVE_PARTS command.
-        /// Saves all parts with metadata in the current drawing to the database.
-        /// </summary>
         [CommandMethod("MC_SAVE_PARTS")]
         public void SaveParts()
         {
             var doc = Application.DocumentManager.MdiActiveDocument;
             var editor = doc.Editor;
 
-            // Check if a project is open
             if (DatabaseService.CurrentProject == null)
-            {
-                editor.WriteMessage("\nNo project is currently open.");
-                editor.WriteMessage("\nUse MC_OPEN_PROJECT to select a project first.");
-                return;
-            }
+            { editor.WriteMessage("\nNo project open. Use MC_OPEN_PROJECT first."); return; }
 
             try
             {
-                // Get statistics first
-                var stats = PartPropertiesManager.GetPartStatistics();
-                editor.WriteMessage($"\n--- Drawing Statistics ---");
-                editor.WriteMessage($"\n  Total 3D Solids: {stats.totalSolids}");
-                editor.WriteMessage($"\n  With Metadata: {stats.withMetadata}");
-                editor.WriteMessage($"\n  Without Metadata: {stats.withoutMetadata}");
-
-                if (stats.withMetadata == 0)
-                {
-                    editor.WriteMessage("\nNo parts with metadata found to save.");
-                    return;
-                }
-
-                // Save to database
-                int savedCount = PartPropertiesManager.SaveAllPartsToDatabase();
-
-                editor.WriteMessage($"\n--- Save Complete ---");
-                editor.WriteMessage($"\nSaved {savedCount} part(s) to project: {DatabaseService.CurrentProject.Name}");
+                editor.WriteMessage("\nSaving parts with full geometry data...");
+                int count = SaveAllPartsWithGeometry();
+                editor.WriteMessage($"\nSaved {count} part(s) to project: {DatabaseService.CurrentProject.Name}");
             }
             catch (System.Exception ex)
             {
-                editor.WriteMessage($"\nError saving parts: {ex.Message}");
+                editor.WriteMessage($"\nError: {ex.Message}");
             }
         }
 
         /// <summary>
-        /// The MC_PROJECT_STATUS command.
-        /// Shows the current project status and drawing statistics.
+        /// Save all parts with complete geometry data.
         /// </summary>
+        private int SaveAllPartsWithGeometry()
+        {
+            var doc = Application.DocumentManager.MdiActiveDocument;
+            var db = doc.Database;
+            int savedCount = 0;
+
+            using (var tr = db.TransactionManager.StartTransaction())
+            {
+                var bt = tr.GetObject(db.BlockTableId, OpenMode.ForRead) as BlockTable;
+                var ms = tr.GetObject(bt[BlockTableRecord.ModelSpace], OpenMode.ForRead) as BlockTableRecord;
+
+                foreach (ObjectId objId in ms)
+                {
+                    var entity = tr.GetObject(objId, OpenMode.ForRead) as Entity;
+                    if (!(entity is Solid3d solid)) continue;
+
+                    var xdata = entity.GetXDataForApplication(AppName);
+                    if (xdata == null) continue;
+
+                    // Get part name from XData
+                    string partName = "";
+                    var values = xdata.AsArray();
+                    for (int i = 1; i < values.Length - 1; i += 2)
+                    {
+                        if (values[i].Value.ToString() == "PartName")
+                            partName = values[i + 1].Value.ToString();
+                    }
+
+                    if (string.IsNullOrEmpty(partName)) continue;
+
+                    // Extract and save full part data
+                    var part = PartGeometryHelper.ExtractPartData(objId, partName);
+                    if (part != null)
+                    {
+                        DatabaseService.SavePart(part);
+                        savedCount++;
+                    }
+                }
+
+                tr.Commit();
+            }
+
+            return savedCount;
+        }
+
         [CommandMethod("MC_PROJECT_STATUS")]
         public void ProjectStatus()
         {
@@ -293,58 +200,273 @@ namespace FirstAcadPlugin
 
             editor.WriteMessage("\n========== MC Constructor Status ==========");
 
-            // Project info
             if (DatabaseService.CurrentProject != null)
             {
-                editor.WriteMessage($"\n  Current Project: {DatabaseService.CurrentProject.Name}");
-                editor.WriteMessage($"\n  Project ID: {DatabaseService.CurrentProject.Id}");
+                editor.WriteMessage($"\n  Project: {DatabaseService.CurrentProject.Name}");
+
+                // Get parts count from database
+                var parts = DatabaseService.GetOriginalParts();
+                editor.WriteMessage($"\n  Parts in Database: {parts.Count}");
             }
             else
             {
-                editor.WriteMessage("\n  No project open (use MC_OPEN_PROJECT)");
+                editor.WriteMessage("\n  No project open");
             }
 
-            // Drawing info
-            editor.WriteMessage($"\n  Drawing: {System.IO.Path.GetFileName(doc.Name)}");
+            editor.WriteMessage($"\n  Drawing: {Path.GetFileName(doc.Name)}");
 
-            // Part statistics
             var stats = PartPropertiesManager.GetPartStatistics();
-            editor.WriteMessage($"\n  Total 3D Solids: {stats.totalSolids}");
-            editor.WriteMessage($"\n  Parts with Metadata: {stats.withMetadata}");
-            editor.WriteMessage($"\n  Parts without Metadata: {stats.withoutMetadata}");
-
+            editor.WriteMessage($"\n  3D Solids: {stats.totalSolids}");
+            editor.WriteMessage($"\n  With Metadata: {stats.withMetadata}");
             editor.WriteMessage("\n============================================");
         }
 
-        /// <summary>
-        /// The MC_LIST_PARTS command.
-        /// Lists all parts with metadata in the current drawing.
-        /// </summary>
         [CommandMethod("MC_LIST_PARTS")]
         public void ListParts()
+        {
+            var editor = Application.DocumentManager.MdiActiveDocument.Editor;
+            var parts = PartPropertiesManager.GetAllPartsInDrawing();
+
+            if (parts.Count == 0)
+            { editor.WriteMessage("\nNo parts found. Use MC_ADD_PART_METADATA first."); return; }
+
+            editor.WriteMessage($"\n========== Parts ({parts.Count}) ==========");
+            for (int i = 0; i < parts.Count; i++)
+                editor.WriteMessage($"\n  {i + 1}. {parts[i].PartName}");
+            editor.WriteMessage("\n==========================================");
+        }
+
+        // ==================== NEW PART REFERENCE COMMANDS ====================
+
+        /// <summary>
+        /// MC_INSERT_PART - Insert a part from the database into the current drawing.
+        /// Works like xref but the part is editable.
+        /// </summary>
+        [CommandMethod("MC_INSERT_PART")]
+        public void InsertPart()
         {
             var doc = Application.DocumentManager.MdiActiveDocument;
             var editor = doc.Editor;
 
-            var parts = PartPropertiesManager.GetAllPartsInDrawing();
+            if (DatabaseService.CurrentProject == null)
+            { editor.WriteMessage("\nNo project open. Use MC_OPEN_PROJECT first."); return; }
 
-            if (parts.Count == 0)
+            // Get available parts from database
+            var availableParts = DatabaseService.GetOriginalParts();
+
+            if (availableParts.Count == 0)
+            { editor.WriteMessage("\nNo parts found in database. Save parts first."); return; }
+
+            // Show part selection dialog
+            var dialog = new InsertPartDialog(availableParts);
+            if (Application.ShowModalWindow(dialog) != true || dialog.SelectedPart == null)
+            { editor.WriteMessage("\nCommand cancelled."); return; }
+
+            var partToInsert = dialog.SelectedPart;
+
+            // Get insertion point
+            var pointResult = editor.GetPoint("\nSpecify insertion point: ");
+            if (pointResult.Status != PromptStatus.OK)
+            { editor.WriteMessage("\nCommand cancelled."); return; }
+
+            try
             {
-                editor.WriteMessage("\nNo parts with metadata found in this drawing.");
-                editor.WriteMessage("\nUse MC_ADD_PART_METADATA to add metadata to 3D solids.");
-                return;
+                // Create the solid from part data
+                var newSolidId = PartGeometryHelper.CreateSolidFromPart(partToInsert, pointResult.Value);
+
+                if (newSolidId != ObjectId.Null)
+                {
+                    // Save as a reference in database
+                    var newPart = PartGeometryHelper.ExtractPartData(newSolidId, partToInsert.PartName);
+                    if (newPart != null)
+                    {
+                        newPart.ParentPartId = partToInsert.Id;
+                        newPart.IsOriginal = false;
+                        DatabaseService.SavePart(newPart);
+                    }
+
+                    editor.WriteMessage($"\nInserted part: {partToInsert.PartName}");
+                    editor.WriteMessage("\nThis is a reference. Use MC_OVERRIDE_PART to make local changes.");
+                }
+                else
+                {
+                    editor.WriteMessage("\nFailed to create part geometry.");
+                }
+            }
+            catch (System.Exception ex)
+            {
+                editor.WriteMessage($"\nError: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// MC_OVERRIDE_PART - Override a part reference with local changes.
+        /// Changes will sync back to original when MC_UPDATE_ALL_PARTS is run.
+        /// </summary>
+        [CommandMethod("MC_OVERRIDE_PART")]
+        public void OverridePart()
+        {
+            var doc = Application.DocumentManager.MdiActiveDocument;
+            var editor = doc.Editor;
+
+            if (DatabaseService.CurrentProject == null)
+            { editor.WriteMessage("\nNo project open."); return; }
+
+            // Select the part to override
+            var options = new PromptEntityOptions("\nSelect a part to override: ");
+            options.SetRejectMessage("\nMust be a 3D solid.");
+            options.AddAllowedClass(typeof(Solid3d), true);
+
+            var result = editor.GetEntity(options);
+            if (result.Status != PromptStatus.OK) return;
+
+            using (var tr = doc.Database.TransactionManager.StartTransaction())
+            {
+                var solid = tr.GetObject(result.ObjectId, OpenMode.ForRead) as Solid3d;
+                if (solid == null) return;
+
+                // Get part info from XData
+                var (partName, partId, parentPartId, isOriginal) = PartGeometryHelper.GetPartXData(solid);
+
+                if (string.IsNullOrEmpty(partName))
+                { editor.WriteMessage("\nThis object has no part metadata."); return; }
+
+                if (isOriginal)
+                { editor.WriteMessage("\nThis is an original part. Changes are saved directly."); return; }
+
+                if (!partId.HasValue)
+                { editor.WriteMessage("\nPart ID not found. Save the part first."); return; }
+
+                // Confirm override
+                var confirmResult = editor.GetKeywords(
+                    new PromptKeywordOptions($"\nOverride '{partName}'? Changes will sync to original. [Yes/No]", "Yes No")
+                    { AllowNone = false }
+                );
+
+                if (confirmResult.Status != PromptStatus.OK || confirmResult.StringResult != "Yes")
+                { editor.WriteMessage("\nOverride cancelled."); return; }
+
+                tr.Commit();
             }
 
-            editor.WriteMessage($"\n========== Parts in Drawing ({parts.Count}) ==========");
+            // Extract updated geometry and mark as override
+            var updatedPart = PartGeometryHelper.ExtractPartData(result.ObjectId, "");
+            if (updatedPart == null)
+            { editor.WriteMessage("\nFailed to extract part data."); return; }
 
-            int index = 1;
+            try
+            {
+                // Get the part ID from XData
+                Guid? partId = null;
+                using (var tr = doc.Database.TransactionManager.StartTransaction())
+                {
+                    var solid = tr.GetObject(result.ObjectId, OpenMode.ForRead) as Solid3d;
+                    (_, partId, _, _) = PartGeometryHelper.GetPartXData(solid);
+                    tr.Commit();
+                }
+
+                if (partId.HasValue)
+                {
+                    DatabaseService.OverridePart(partId.Value, updatedPart);
+                    editor.WriteMessage("\nPart marked as overridden.");
+                    editor.WriteMessage("\nRun MC_UPDATE_ALL_PARTS in the original drawing to sync changes.");
+                }
+            }
+            catch (System.Exception ex)
+            {
+                editor.WriteMessage($"\nError: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// MC_UPDATE_ALL_PARTS - Update all parts in the drawing from database.
+        /// Applies changes from overridden references.
+        /// </summary>
+        [CommandMethod("MC_UPDATE_ALL_PARTS")]
+        public void UpdateAllParts()
+        {
+            var doc = Application.DocumentManager.MdiActiveDocument;
+            var editor = doc.Editor;
+
+            if (DatabaseService.CurrentProject == null)
+            { editor.WriteMessage("\nNo project open."); return; }
+
+            // First, apply any overrides to originals
+            var overriddenParts = DatabaseService.GetOverriddenParts();
+            int appliedOverrides = 0;
+
+            foreach (var part in overriddenParts)
+            {
+                if (part.ParentPartId.HasValue)
+                {
+                    try
+                    {
+                        DatabaseService.ApplyOverrideToOriginal(part.Id);
+                        appliedOverrides++;
+                    }
+                    catch { }
+                }
+            }
+
+            if (appliedOverrides > 0)
+                editor.WriteMessage($"\nApplied {appliedOverrides} override(s) to original parts.");
+
+            // Now update parts in this drawing
+            int updatedCount = 0;
+
+            using (var tr = doc.Database.TransactionManager.StartTransaction())
+            {
+                var bt = tr.GetObject(doc.Database.BlockTableId, OpenMode.ForRead) as BlockTable;
+                var ms = tr.GetObject(bt[BlockTableRecord.ModelSpace], OpenMode.ForRead) as BlockTableRecord;
+
+                foreach (ObjectId objId in ms)
+                {
+                    var entity = tr.GetObject(objId, OpenMode.ForRead) as Entity;
+                    if (!(entity is Solid3d)) continue;
+
+                    var (partName, partId, parentPartId, isOriginal) = PartGeometryHelper.GetPartXData(entity);
+
+                    if (!parentPartId.HasValue) continue; // Not a reference
+
+                    // Get the latest version from database
+                    var latestPart = DatabaseService.GetPartById(parentPartId.Value);
+                    if (latestPart == null) continue;
+
+                    // Update the solid
+                    if (PartGeometryHelper.UpdateSolidFromPart(objId, latestPart))
+                        updatedCount++;
+                }
+
+                tr.Commit();
+            }
+
+            editor.WriteMessage($"\nUpdated {updatedCount} part reference(s) in this drawing.");
+        }
+
+        /// <summary>
+        /// MC_LIST_DB_PARTS - List all parts in the database for current project.
+        /// </summary>
+        [CommandMethod("MC_LIST_DB_PARTS")]
+        public void ListDatabaseParts()
+        {
+            var editor = Application.DocumentManager.MdiActiveDocument.Editor;
+
+            if (DatabaseService.CurrentProject == null)
+            { editor.WriteMessage("\nNo project open."); return; }
+
+            var parts = DatabaseService.GetOriginalParts();
+
+            editor.WriteMessage($"\n========== Parts in Database ({parts.Count}) ==========");
+
             foreach (var part in parts)
             {
-                editor.WriteMessage($"\n  {index}. {part.PartName} (Handle: {part.ObjectHandle})");
-                index++;
+                string status = part.IsOverride ? " [OVERRIDDEN]" : "";
+                editor.WriteMessage($"\n  - {part.PartName}{status}");
+                editor.WriteMessage($"\n      Source: {part.SourceDrawingName}");
+                editor.WriteMessage($"\n      ID: {part.Id}");
             }
 
-            editor.WriteMessage("\n================================================");
+            editor.WriteMessage("\n======================================================");
         }
     }
 }
