@@ -114,6 +114,8 @@
     <Compile Include="InsertPartDialog.cs" />
     <Compile Include="MetadataPalette.cs" />
     <Compile Include="MyPlugin.cs" />
+    <Compile Include="NestingDialog.cs" />
+    <Compile Include="NestingService.cs" />
     <Compile Include="PartGeometryHelper.cs" />
     <Compile Include="PartMetadataDialog.cs" />
     <Compile Include="PartPropertiesExtension.cs" />

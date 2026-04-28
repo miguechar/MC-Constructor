@@ -468,5 +468,158 @@ namespace FirstAcadPlugin
 
             editor.WriteMessage("\n======================================================");
         }
+
+        // ==================== NESTING COMMANDS ====================
+
+        /// <summary>
+        /// MC_CREATE_NEST - Create a nesting layout for plasma cutting.
+        /// Prompts to select parts, then asks for plate dimensions,
+        /// creates a new drawing with flattened 2D outlines optimized on the plate.
+        /// </summary>
+        [CommandMethod("MC_CREATE_NEST", CommandFlags.Session)]
+        public void CreateNest()
+        {
+            var doc = Application.DocumentManager.MdiActiveDocument;
+            var editor = doc.Editor;
+
+            editor.WriteMessage("\n=== MC Create Nesting Layout ===");
+
+            // Prompt user to select 3D solids
+            var selOptions = new PromptSelectionOptions
+            {
+                MessageForAdding = "\nSelect 3D solids to nest (or press Enter to select all parts): ",
+                AllowDuplicates = false
+            };
+
+            // Filter for 3D solids only
+            var filter = new SelectionFilter(new[]
+            {
+                new TypedValue((int)DxfCode.Start, "3DSOLID")
+            });
+
+            var selResult = editor.GetSelection(selOptions, filter);
+
+            if (selResult.Status == PromptStatus.Cancel)
+            {
+                editor.WriteMessage("\nCommand cancelled.");
+                return;
+            }
+
+            if (selResult.Status != PromptStatus.OK || selResult.Value.Count == 0)
+            {
+                editor.WriteMessage("\nNo 3D solids selected.");
+                return;
+            }
+
+            editor.WriteMessage($"\nSelected {selResult.Value.Count} solid(s).");
+
+            // Extract part information
+            var parts = NestingService.ExtractPartsFromSelection(selResult.Value);
+
+            if (parts.Count == 0)
+            {
+                editor.WriteMessage("\nNo valid parts found in selection.");
+                return;
+            }
+
+            // Show plate dimensions dialog
+            var dialog = new NestingDialog(parts.Count);
+            if (Application.ShowModalWindow(dialog) != true)
+            {
+                editor.WriteMessage("\nCommand cancelled.");
+                return;
+            }
+
+            editor.WriteMessage($"\nPlate size: {dialog.PlateWidth} x {dialog.PlateHeight} mm");
+            editor.WriteMessage($"\nPart spacing: {dialog.Spacing} mm");
+
+            // Perform nesting
+            editor.WriteMessage("\nCalculating optimal layout...");
+
+            var nestingResult = NestingService.NestPartsGuillotine(
+                parts,
+                dialog.PlateWidth,
+                dialog.PlateHeight,
+                dialog.Spacing
+            );
+
+            if (nestingResult.PlacedParts.Count == 0)
+            {
+                editor.WriteMessage("\nError: No parts could fit on the plate. Try a larger plate size.");
+                return;
+            }
+
+            // Create the nesting drawing
+            editor.WriteMessage("\nCreating nesting drawing...");
+
+            try
+            {
+                string newDrawingName = NestingService.CreateNestingDrawing(nestingResult);
+
+                editor.WriteMessage("\n=== Nesting Complete ===");
+                editor.WriteMessage($"\n  Parts placed: {nestingResult.PlacedParts.Count}");
+
+                if (nestingResult.UnplacedParts.Count > 0)
+                {
+                    editor.WriteMessage($"\n  Parts that didn't fit: {nestingResult.UnplacedParts.Count}");
+                    foreach (var unplaced in nestingResult.UnplacedParts)
+                    {
+                        editor.WriteMessage($"\n    - {unplaced.PartName} ({unplaced.Width:F1} x {unplaced.Height:F1} mm)");
+                    }
+                }
+
+                editor.WriteMessage($"\n  Plate utilization: {nestingResult.Efficiency:F1}%");
+                editor.WriteMessage("\n========================");
+            }
+            catch (System.Exception ex)
+            {
+                editor.WriteMessage($"\nError creating nesting drawing: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// MC_QUICK_NEST - Quick nesting with default plate size (2440x1220).
+        /// </summary>
+        [CommandMethod("MC_QUICK_NEST", CommandFlags.Session)]
+        public void QuickNest()
+        {
+            var doc = Application.DocumentManager.MdiActiveDocument;
+            var editor = doc.Editor;
+
+            // Select all 3D solids with metadata
+            var filter = new SelectionFilter(new[]
+            {
+                new TypedValue((int)DxfCode.Start, "3DSOLID")
+            });
+
+            var selResult = editor.SelectAll(filter);
+
+            if (selResult.Status != PromptStatus.OK || selResult.Value.Count == 0)
+            {
+                editor.WriteMessage("\nNo 3D solids found in drawing.");
+                return;
+            }
+
+            var parts = NestingService.ExtractPartsFromSelection(selResult.Value);
+
+            if (parts.Count == 0)
+            {
+                editor.WriteMessage("\nNo valid parts found.");
+                return;
+            }
+
+            // Use default plate size
+            var nestingResult = NestingService.NestPartsGuillotine(parts, 2440, 1220, 10);
+
+            if (nestingResult.PlacedParts.Count > 0)
+            {
+                NestingService.CreateNestingDrawing(nestingResult);
+                editor.WriteMessage($"\nQuick nest complete: {nestingResult.PlacedParts.Count} parts, {nestingResult.Efficiency:F1}% efficiency");
+            }
+            else
+            {
+                editor.WriteMessage("\nNo parts could fit on default plate (2440x1220mm).");
+            }
+        }
     }
 }

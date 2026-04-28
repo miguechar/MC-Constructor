@@ -131,6 +131,17 @@ namespace FirstAcadPlugin
             refsPanelSource.Items.Add(CreateLargeButton("Update\nAll Parts", "MC_UPDATE_ALL_PARTS"));
             refsPanelSource.Items.Add(CreateLargeButton("List DB\nParts", "MC_LIST_DB_PARTS"));
 
+            // ========== NESTING PANEL ==========
+            RibbonPanelSource nestingPanelSource = new RibbonPanelSource();
+            nestingPanelSource.Title = "Nesting";
+
+            RibbonPanel nestingPanel = new RibbonPanel();
+            nestingPanel.Source = nestingPanelSource;
+            tab.Panels.Add(nestingPanel);
+
+            nestingPanelSource.Items.Add(CreateLargeButton("Create\nNest", "MC_CREATE_NEST"));
+            nestingPanelSource.Items.Add(CreateLargeButton("Quick\nNest", "MC_QUICK_NEST"));
+
             // ========== TOOLS PANEL ==========
             RibbonPanelSource toolsPanelSource = new RibbonPanelSource();
             toolsPanelSource.Title = "Tools";
@@ -191,20 +202,17 @@ namespace FirstAcadPlugin
             if (doc == null)
                 return;
 
-            // Use LISP-style command execution which is more reliable from ribbon
-            // The (command "...") format ensures the command runs properly
-            string lispCommand = string.Format("(command \"{0}\") ", commandName);
-
             try
             {
-                doc.SendStringToExecute(lispCommand, true, false, false);
+                // Use simple command execution with leading underscore
+                // The space at the end acts as Enter to execute the command
+                doc.SendStringToExecute(commandName + "\n", true, false, true);
             }
-            catch
+            catch (System.Exception ex)
             {
-                // Fallback to simple command
                 try
                 {
-                    doc.SendStringToExecute("_" + commandName + " ", true, false, true);
+                    doc.Editor.WriteMessage($"\nError executing {commandName}: {ex.Message}");
                 }
                 catch { }
             }
