@@ -414,6 +414,59 @@ namespace FirstAcadPlugin
         }
 
         /// <summary>
+        /// Conventional name for the template that supplies the title block
+        /// to nest output drawings. The user creates this via MCCreateDrawing
+        /// (drawing_type=Template, name=NEST TEMPLATE) and saves their
+        /// titleblock layout in it.
+        /// </summary>
+        public const string NestTemplateName = "NEST TEMPLATE";
+
+        /// <summary>
+        /// Find the project's nest template, if present. Match is
+        /// case-insensitive on name and looks only at drawings of type
+        /// 'Template'. Returns null when the current project has none, or
+        /// when no project is open.
+        /// </summary>
+        public static Drawing FindNestTemplate()
+        {
+            if (CurrentProject == null) return null;
+
+            using (var conn = new NpgsqlConnection(_connectionString))
+            {
+                conn.Open();
+                using (var cmd = new NpgsqlCommand(
+                    @"SELECT id, project_id, name, description, drawing_type, discipline,
+                             file_path, created_at, updated_at
+                      FROM public.drawings
+                      WHERE project_id = @projectId
+                        AND drawing_type = 'Template'
+                        AND UPPER(name) = @name
+                      LIMIT 1", conn))
+                {
+                    cmd.Parameters.AddWithValue("projectId", CurrentProject.Id);
+                    cmd.Parameters.AddWithValue("name", NestTemplateName.ToUpperInvariant());
+
+                    using (var r = cmd.ExecuteReader())
+                    {
+                        if (!r.Read()) return null;
+                        return new Drawing
+                        {
+                            Id = r.GetGuid(0),
+                            ProjectId = r.GetGuid(1),
+                            Name = r.GetString(2),
+                            Description = r.IsDBNull(3) ? null : r.GetString(3),
+                            DrawingType = r.GetString(4),
+                            Discipline = r.IsDBNull(5) ? null : r.GetString(5),
+                            FilePath = r.GetString(6),
+                            CreatedAt = r.GetDateTime(7),
+                            UpdatedAt = r.GetDateTime(8)
+                        };
+                    }
+                }
+            }
+        }
+
+        /// <summary>
         /// Look up a drawing by its absolute file path. Returns null if not
         /// found. Useful when the user opens a .dwg from disk and we need to
         /// reattach it to its DB row.

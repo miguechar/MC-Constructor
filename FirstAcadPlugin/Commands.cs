@@ -903,17 +903,27 @@ namespace FirstAcadPlugin
 
             editor.WriteMessage("\n=== MC Create Nesting Layout ===");
 
-            // Prompt user to select 3D solids
+            // Prompt user to select parts to nest. We accept both 3D solids
+            // and 2D shapes - parts without MC metadata get arranged on the
+            // plate without labels, so users can nest raw outlines directly.
             var selOptions = new PromptSelectionOptions
             {
-                MessageForAdding = "\nSelect 3D solids to nest (or press Enter to select all parts): ",
+                MessageForAdding = "\nSelect parts to nest (3D solids or 2D shapes): ",
                 AllowDuplicates = false
             };
 
-            // Filter for 3D solids only
             var filter = new SelectionFilter(new[]
             {
-                new TypedValue((int)DxfCode.Start, "3DSOLID")
+                new TypedValue((int)DxfCode.Operator,  "<OR"),
+                new TypedValue((int)DxfCode.Start,     "3DSOLID"),
+                new TypedValue((int)DxfCode.Start,     "LWPOLYLINE"),
+                new TypedValue((int)DxfCode.Start,     "POLYLINE"),
+                new TypedValue((int)DxfCode.Start,     "REGION"),
+                new TypedValue((int)DxfCode.Start,     "CIRCLE"),
+                new TypedValue((int)DxfCode.Start,     "ELLIPSE"),
+                new TypedValue((int)DxfCode.Start,     "SPLINE"),
+                new TypedValue((int)DxfCode.Start,     "SOLID"),
+                new TypedValue((int)DxfCode.Operator,  "OR>"),
             });
 
             var selResult = editor.GetSelection(selOptions, filter);
@@ -973,7 +983,21 @@ namespace FirstAcadPlugin
 
             try
             {
-                string newDrawingName = NestingService.CreateNestingDrawing(nestingResult);
+                // Resolve the project's NEST TEMPLATE if there is one. When
+                // present, the new nest is built as a copy of the template
+                // (so the title block comes along for free) and registered
+                // as a Sheet drawing in the project.
+                var nestPlan = ResolveNestOutputPlan(editor, nestingResult);
+
+                NestingService.CreateNestingDrawing(
+                    nestingResult,
+                    nestPlan.TemplatePath,
+                    nestPlan.OutputPath,
+                    nestPlan.PropertiesToStamp);
+
+                // If we wrote a real file, register it in the database so
+                // the navigator can find it.
+                RegisterNestDrawingIfSaved(nestPlan, nestingResult);
 
                 // CreateNestingDrawing makes a new doc the active document, so
                 // the editor we captured above is no longer applicable. Use
@@ -991,11 +1015,106 @@ namespace FirstAcadPlugin
                 }
 
                 WriteMessageSafe($"\n  Plate utilization: {nestingResult.Efficiency:F1}%");
+                if (!string.IsNullOrEmpty(nestPlan.OutputPath))
+                    WriteMessageSafe($"\n  Saved to: {nestPlan.OutputPath}");
                 WriteMessageSafe("\n========================");
             }
             catch (System.Exception ex)
             {
                 WriteMessageSafe($"\nError creating nesting drawing: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Plan describing where a nest drawing should be written and what
+        /// MC properties to stamp into it. Built once per nest run so
+        /// MCCreateNest and MCQuickNest share the same logic.
+        /// </summary>
+        private class NestOutputPlan
+        {
+            public string TemplatePath;       // null when no NEST TEMPLATE found
+            public string OutputPath;         // null when no template (in-memory drawing)
+            public string DrawingName;        // file stem to use for the DB row
+            public Guid   DrawingId;          // pre-allocated id, stamped into the file
+            public DrawingPropertiesData PropertiesToStamp;
+        }
+
+        /// <summary>
+        /// Look up the project's NEST TEMPLATE and decide where to save the
+        /// new nest. Returns a plan with all paths null when there's no
+        /// project, no template, or anything else that should fall back to
+        /// the legacy in-memory flow. Writes a hint to the editor either way.
+        /// </summary>
+        private static NestOutputPlan ResolveNestOutputPlan(Editor editor, NestingResult nestingResult)
+        {
+            var plan = new NestOutputPlan();
+
+            var project = DatabaseService.CurrentProject;
+            if (project == null || string.IsNullOrEmpty(project.Directory))
+            {
+                editor.WriteMessage("\nNo project open - creating a blank nest drawing.");
+                editor.WriteMessage("\nTip: open a project (MCOpenProject) and add a Template named 'NEST TEMPLATE' to get a titleblock.");
+                return plan;
+            }
+
+            Drawing template = null;
+            try { template = DatabaseService.FindNestTemplate(); }
+            catch (System.Exception ex) { editor.WriteMessage($"\nError looking up nest template: {ex.Message}"); }
+
+            if (template == null || string.IsNullOrEmpty(template.FilePath) || !File.Exists(template.FilePath))
+            {
+                editor.WriteMessage("\nNo NEST TEMPLATE found in this project - creating a blank nest drawing.");
+                editor.WriteMessage("\nTip: create a Template named 'NEST TEMPLATE' via MCCreateDrawing and save your titleblock in it.");
+                return plan;
+            }
+
+            // Build a unique output path under <project>/03 Sheets so the
+            // user gets a fresh file every time and the DB unique-name
+            // constraint isn't violated.
+            string sheetsDir = Path.Combine(project.Directory, ProjectFolderLayout.Sheets);
+            string drawingName = $"Nest_{DateTime.Now:yyyy-MM-dd_HHmmss}";
+            string outputPath = Path.Combine(sheetsDir, drawingName + ".dwg");
+
+            plan.TemplatePath = template.FilePath;
+            plan.OutputPath = outputPath;
+            plan.DrawingName = drawingName;
+            plan.DrawingId = Guid.NewGuid();
+            plan.PropertiesToStamp = new DrawingPropertiesData
+            {
+                DrawingType = DrawingTypes.Sheet,
+                ProjectId   = project.Id,
+                ProjectName = project.Name,
+                DrawingId   = plan.DrawingId,
+                Description = $"Nest layout: {nestingResult.PlacedParts.Count} parts, {nestingResult.Efficiency:F1}% efficiency"
+            };
+
+            editor.WriteMessage($"\nUsing nest template: {Path.GetFileName(plan.TemplatePath)}");
+            return plan;
+        }
+
+        /// <summary>
+        /// Register a nest drawing in public.drawings as a Sheet, using the
+        /// id we already stamped into the file. Best-effort: if the DB
+        /// insert fails, the .dwg still exists on disk.
+        /// </summary>
+        private static void RegisterNestDrawingIfSaved(NestOutputPlan plan, NestingResult nestingResult)
+        {
+            if (string.IsNullOrEmpty(plan.OutputPath) || !File.Exists(plan.OutputPath))
+                return;
+
+            try
+            {
+                DatabaseService.CreateDrawing(
+                    plan.DrawingId,
+                    plan.DrawingName,
+                    DrawingTypes.Sheet,
+                    discipline: null,
+                    filePath: plan.OutputPath,
+                    description: plan.PropertiesToStamp?.Description);
+            }
+            catch (System.Exception ex)
+            {
+                WriteMessageSafe($"\nNote: nest file created but DB register failed: {ex.Message}");
             }
         }
 
@@ -1008,17 +1127,27 @@ namespace FirstAcadPlugin
             var doc = Application.DocumentManager.MdiActiveDocument;
             var editor = doc.Editor;
 
-            // Select all 3D solids with metadata
+            // Select every nestable shape - 3D solids and 2D outlines.
+            // 2D shapes without metadata still nest, just without labels.
             var filter = new SelectionFilter(new[]
             {
-                new TypedValue((int)DxfCode.Start, "3DSOLID")
+                new TypedValue((int)DxfCode.Operator,  "<OR"),
+                new TypedValue((int)DxfCode.Start,     "3DSOLID"),
+                new TypedValue((int)DxfCode.Start,     "LWPOLYLINE"),
+                new TypedValue((int)DxfCode.Start,     "POLYLINE"),
+                new TypedValue((int)DxfCode.Start,     "REGION"),
+                new TypedValue((int)DxfCode.Start,     "CIRCLE"),
+                new TypedValue((int)DxfCode.Start,     "ELLIPSE"),
+                new TypedValue((int)DxfCode.Start,     "SPLINE"),
+                new TypedValue((int)DxfCode.Start,     "SOLID"),
+                new TypedValue((int)DxfCode.Operator,  "OR>"),
             });
 
             var selResult = editor.SelectAll(filter);
 
             if (selResult.Status != PromptStatus.OK || selResult.Value.Count == 0)
             {
-                editor.WriteMessage("\nNo 3D solids found in drawing.");
+                editor.WriteMessage("\nNo nestable shapes found in drawing.");
                 return;
             }
 
@@ -1037,9 +1166,20 @@ namespace FirstAcadPlugin
             {
                 try
                 {
-                    NestingService.CreateNestingDrawing(nestingResult);
+                    var nestPlan = ResolveNestOutputPlan(editor, nestingResult);
+
+                    NestingService.CreateNestingDrawing(
+                        nestingResult,
+                        nestPlan.TemplatePath,
+                        nestPlan.OutputPath,
+                        nestPlan.PropertiesToStamp);
+
+                    RegisterNestDrawingIfSaved(nestPlan, nestingResult);
+
                     // The active document just changed; use the safe variant.
                     WriteMessageSafe($"\nQuick nest complete: {nestingResult.PlacedParts.Count} parts, {nestingResult.Efficiency:F1}% efficiency");
+                    if (!string.IsNullOrEmpty(nestPlan.OutputPath))
+                        WriteMessageSafe($"\n  Saved to: {nestPlan.OutputPath}");
                 }
                 catch (System.Exception ex)
                 {
