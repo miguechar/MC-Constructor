@@ -164,7 +164,7 @@ namespace FirstAcadPlugin
         public static int SaveAllPartsToDatabase()
         {
             if (DatabaseService.CurrentProject == null)
-                throw new InvalidOperationException("No project is currently open. Use MC_OPEN_PROJECT first.");
+                throw new InvalidOperationException("No project is currently open. Use MCOpenProject first.");
 
             var parts = GetAllPartsInDrawing();
 

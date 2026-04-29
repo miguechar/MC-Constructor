@@ -9,7 +9,105 @@ namespace FirstAcadPlugin
         public Guid Id { get; set; }
         public string Name { get; set; }
         public string Description { get; set; }
+        /// <summary>
+        /// Absolute root directory on the local file system (e.g. C:\Projects\MyProject).
+        /// The standard "00 Admin", "01 Standards", ... folders live under this path.
+        /// </summary>
+        public string Directory { get; set; }
         public override string ToString() => Name;
+    }
+
+    /// <summary>
+    /// A drawing belonging to a project. Mirrors public.drawings.
+    /// </summary>
+    public class Drawing
+    {
+        public Guid Id { get; set; }
+        public Guid ProjectId { get; set; }
+        public string Name { get; set; }
+        public string Description { get; set; }
+        /// <summary>One of <see cref="DrawingTypes"/>.</summary>
+        public string DrawingType { get; set; }
+        /// <summary>One of <see cref="DrawingDisciplines"/>, or null.</summary>
+        public string Discipline { get; set; }
+        public string FilePath { get; set; }
+        public DateTime CreatedAt { get; set; }
+        public DateTime UpdatedAt { get; set; }
+        public override string ToString() => Name;
+    }
+
+    /// <summary>
+    /// Allowed values for Drawing.DrawingType. Keep in sync with the CHECK
+    /// constraint in SQL/create_drawings_table.sql.
+    /// </summary>
+    public static class DrawingTypes
+    {
+        public const string BlockLibrary = "BlockLibrary";
+        public const string FunctionalDrawing = "FunctionalDrawing";
+        public const string DetailDrawing = "DetailDrawing";
+        public const string Template = "Template";
+        public const string Titleblock = "Titleblock";
+        public const string Sheet = "Sheet";
+        public const string Other = "Other";
+
+        public static readonly string[] All = {
+            BlockLibrary, FunctionalDrawing, DetailDrawing,
+            Template, Titleblock, Sheet, Other
+        };
+
+        /// <summary>True for types that need a discipline (i.e. functional drawings).</summary>
+        public static bool RequiresDiscipline(string drawingType)
+        {
+            return drawingType == FunctionalDrawing;
+        }
+
+        /// <summary>
+        /// The relative folder under the project root where a drawing of this
+        /// type lives. Discipline is appended for functional drawings.
+        /// </summary>
+        public static string RelativeFolder(string drawingType, string discipline)
+        {
+            switch (drawingType)
+            {
+                case BlockLibrary:      return @"01 Standards\Blocks";
+                case Template:          return @"01 Standards\Templates";
+                case Titleblock:        return @"01 Standards\Titleblocks";
+                case FunctionalDrawing: return System.IO.Path.Combine(@"02 Models", discipline ?? DrawingDisciplines.General);
+                case DetailDrawing:     return @"02 Models\General";
+                case Sheet:             return @"03 Sheets";
+                case Other:             return @"00 Admin";
+                default:                return @"00 Admin";
+            }
+        }
+
+        /// <summary>Friendly label for combo boxes.</summary>
+        public static string DisplayName(string drawingType)
+        {
+            switch (drawingType)
+            {
+                case BlockLibrary:      return "Block Library";
+                case FunctionalDrawing: return "Functional Drawing";
+                case DetailDrawing:     return "Detail Drawing";
+                case Template:          return "Template";
+                case Titleblock:        return "Titleblock";
+                case Sheet:             return "Sheet";
+                case Other:             return "Other";
+                default:                return drawingType;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Allowed values for Drawing.Discipline. Keep in sync with SQL CHECK constraint.
+    /// </summary>
+    public static class DrawingDisciplines
+    {
+        public const string General = "General";
+        public const string Piping = "Piping";
+        public const string Electrical = "Electrical";
+        public const string HVAC = "HVAC";
+
+        public static readonly string[] All = { General, Piping, Electrical, HVAC };
     }
 
     /// <summary>
@@ -104,7 +202,8 @@ namespace FirstAcadPlugin
             using (var conn = new NpgsqlConnection(_connectionString))
             {
                 conn.Open();
-                using (var cmd = new NpgsqlCommand("SELECT id, name, description FROM public.projects ORDER BY name", conn))
+                using (var cmd = new NpgsqlCommand(
+                    "SELECT id, name, description, directory FROM public.projects ORDER BY name", conn))
                 using (var reader = cmd.ExecuteReader())
                 {
                     while (reader.Read())
@@ -113,7 +212,8 @@ namespace FirstAcadPlugin
                         {
                             Id = reader.GetGuid(0),
                             Name = reader.GetString(1),
-                            Description = reader.IsDBNull(2) ? "" : reader.GetString(2)
+                            Description = reader.IsDBNull(2) ? "" : reader.GetString(2),
+                            Directory = reader.IsDBNull(3) ? "" : reader.GetString(3)
                         });
                     }
                 }
@@ -123,13 +223,263 @@ namespace FirstAcadPlugin
 
         public static void SetCurrentProject(Project project) => CurrentProject = project;
 
+        // ====================================================================
+        // PROJECT CREATION
+        // ====================================================================
+
+        /// <summary>
+        /// Insert a new project row. Returns the populated Project (with Id
+        /// assigned by the database). Does NOT create folders on disk - that
+        /// is handled by the caller (see CreateProjectCommand).
+        /// </summary>
+        public static Project CreateProject(string name, string description, string directory)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+                throw new ArgumentException("Project name is required.", nameof(name));
+            if (string.IsNullOrWhiteSpace(directory))
+                throw new ArgumentException("Project directory is required.", nameof(directory));
+
+            using (var conn = new NpgsqlConnection(_connectionString))
+            {
+                conn.Open();
+                using (var cmd = new NpgsqlCommand(
+                    @"INSERT INTO public.projects (name, description, directory)
+                      VALUES (@name, @description, @directory)
+                      RETURNING id", conn))
+                {
+                    cmd.Parameters.AddWithValue("name", name);
+                    cmd.Parameters.AddWithValue("description", (object)description ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("directory", directory);
+
+                    var id = (Guid)cmd.ExecuteScalar();
+                    return new Project
+                    {
+                        Id = id,
+                        Name = name,
+                        Description = description,
+                        Directory = directory
+                    };
+                }
+            }
+        }
+
+        /// <summary>True if a project with the given name already exists.</summary>
+        public static bool ProjectNameExists(string name)
+        {
+            using (var conn = new NpgsqlConnection(_connectionString))
+            {
+                conn.Open();
+                using (var cmd = new NpgsqlCommand(
+                    "SELECT 1 FROM public.projects WHERE name = @name LIMIT 1", conn))
+                {
+                    cmd.Parameters.AddWithValue("name", name);
+                    return cmd.ExecuteScalar() != null;
+                }
+            }
+        }
+
+        // ====================================================================
+        // DRAWINGS
+        // ====================================================================
+
+        /// <summary>
+        /// Insert a new drawing row for the current project. The .dwg file at
+        /// filePath should already have been written by the caller.
+        /// </summary>
+        public static Drawing CreateDrawing(string name, string drawingType, string discipline, string filePath, string description = null)
+        {
+            // Let the database generate the id.
+            return CreateDrawing(Guid.Empty, name, drawingType, discipline, filePath, description);
+        }
+
+        /// <summary>
+        /// Insert a new drawing row using an explicit id. Pass <see cref="Guid.Empty"/>
+        /// to fall back to the database default. Useful when the caller
+        /// needs to stamp the id into the .dwg file before opening it (so we
+        /// avoid having to SaveAs the active document, which would throw
+        /// eNotApplicable).
+        /// </summary>
+        public static Drawing CreateDrawing(Guid id, string name, string drawingType, string discipline, string filePath, string description = null)
+        {
+            if (CurrentProject == null)
+                throw new InvalidOperationException("No project open. Use MCOpenProject first.");
+            if (string.IsNullOrWhiteSpace(name))
+                throw new ArgumentException("Drawing name is required.", nameof(name));
+            if (string.IsNullOrWhiteSpace(drawingType))
+                throw new ArgumentException("Drawing type is required.", nameof(drawingType));
+            if (string.IsNullOrWhiteSpace(filePath))
+                throw new ArgumentException("File path is required.", nameof(filePath));
+
+            bool useExplicitId = id != Guid.Empty;
+
+            string sql = useExplicitId
+                ? @"INSERT INTO public.drawings
+                        (id, project_id, name, description, drawing_type, discipline, file_path)
+                      VALUES (@id, @projectId, @name, @description, @drawingType, @discipline, @filePath)
+                      RETURNING id, created_at, updated_at"
+                : @"INSERT INTO public.drawings
+                        (project_id, name, description, drawing_type, discipline, file_path)
+                      VALUES (@projectId, @name, @description, @drawingType, @discipline, @filePath)
+                      RETURNING id, created_at, updated_at";
+
+            using (var conn = new NpgsqlConnection(_connectionString))
+            {
+                conn.Open();
+                using (var cmd = new NpgsqlCommand(sql, conn))
+                {
+                    if (useExplicitId)
+                        cmd.Parameters.AddWithValue("id", id);
+                    cmd.Parameters.AddWithValue("projectId", CurrentProject.Id);
+                    cmd.Parameters.AddWithValue("name", name);
+                    cmd.Parameters.AddWithValue("description", (object)description ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("drawingType", drawingType);
+                    cmd.Parameters.AddWithValue("discipline", (object)discipline ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("filePath", filePath);
+
+                    using (var r = cmd.ExecuteReader())
+                    {
+                        r.Read();
+                        return new Drawing
+                        {
+                            Id = r.GetGuid(0),
+                            ProjectId = CurrentProject.Id,
+                            Name = name,
+                            Description = description,
+                            DrawingType = drawingType,
+                            Discipline = discipline,
+                            FilePath = filePath,
+                            CreatedAt = r.GetDateTime(1),
+                            UpdatedAt = r.GetDateTime(2)
+                        };
+                    }
+                }
+            }
+        }
+
+        /// <summary>True if a drawing with this name already exists in the current project.</summary>
+        public static bool DrawingNameExistsInCurrentProject(string name)
+        {
+            if (CurrentProject == null) return false;
+            using (var conn = new NpgsqlConnection(_connectionString))
+            {
+                conn.Open();
+                using (var cmd = new NpgsqlCommand(
+                    "SELECT 1 FROM public.drawings WHERE project_id = @projectId AND name = @name LIMIT 1", conn))
+                {
+                    cmd.Parameters.AddWithValue("projectId", CurrentProject.Id);
+                    cmd.Parameters.AddWithValue("name", name);
+                    return cmd.ExecuteScalar() != null;
+                }
+            }
+        }
+
+        /// <summary>All drawings registered for the current project.</summary>
+        public static List<Drawing> GetDrawings()
+        {
+            var drawings = new List<Drawing>();
+            if (CurrentProject == null) return drawings;
+
+            using (var conn = new NpgsqlConnection(_connectionString))
+            {
+                conn.Open();
+                using (var cmd = new NpgsqlCommand(
+                    @"SELECT id, project_id, name, description, drawing_type, discipline,
+                             file_path, created_at, updated_at
+                      FROM public.drawings
+                      WHERE project_id = @projectId
+                      ORDER BY name", conn))
+                {
+                    cmd.Parameters.AddWithValue("projectId", CurrentProject.Id);
+                    using (var r = cmd.ExecuteReader())
+                    {
+                        while (r.Read())
+                        {
+                            drawings.Add(new Drawing
+                            {
+                                Id = r.GetGuid(0),
+                                ProjectId = r.GetGuid(1),
+                                Name = r.GetString(2),
+                                Description = r.IsDBNull(3) ? null : r.GetString(3),
+                                DrawingType = r.GetString(4),
+                                Discipline = r.IsDBNull(5) ? null : r.GetString(5),
+                                FilePath = r.GetString(6),
+                                CreatedAt = r.GetDateTime(7),
+                                UpdatedAt = r.GetDateTime(8)
+                            });
+                        }
+                    }
+                }
+            }
+            return drawings;
+        }
+
+        /// <summary>
+        /// Look up a drawing by its absolute file path. Returns null if not
+        /// found. Useful when the user opens a .dwg from disk and we need to
+        /// reattach it to its DB row.
+        /// </summary>
+        public static Drawing GetDrawingByPath(string filePath)
+        {
+            if (string.IsNullOrWhiteSpace(filePath)) return null;
+            using (var conn = new NpgsqlConnection(_connectionString))
+            {
+                conn.Open();
+                using (var cmd = new NpgsqlCommand(
+                    @"SELECT id, project_id, name, description, drawing_type, discipline,
+                             file_path, created_at, updated_at
+                      FROM public.drawings
+                      WHERE file_path = @filePath LIMIT 1", conn))
+                {
+                    cmd.Parameters.AddWithValue("filePath", filePath);
+                    using (var r = cmd.ExecuteReader())
+                    {
+                        if (!r.Read()) return null;
+                        return new Drawing
+                        {
+                            Id = r.GetGuid(0),
+                            ProjectId = r.GetGuid(1),
+                            Name = r.GetString(2),
+                            Description = r.IsDBNull(3) ? null : r.GetString(3),
+                            DrawingType = r.GetString(4),
+                            Discipline = r.IsDBNull(5) ? null : r.GetString(5),
+                            FilePath = r.GetString(6),
+                            CreatedAt = r.GetDateTime(7),
+                            UpdatedAt = r.GetDateTime(8)
+                        };
+                    }
+                }
+            }
+        }
+
+        /// <summary>Update the type/discipline/description on an existing drawing row.</summary>
+        public static void UpdateDrawingProperties(Guid drawingId, string drawingType, string discipline, string description)
+        {
+            using (var conn = new NpgsqlConnection(_connectionString))
+            {
+                conn.Open();
+                using (var cmd = new NpgsqlCommand(
+                    @"UPDATE public.drawings
+                      SET drawing_type = @drawingType,
+                          discipline   = @discipline,
+                          description  = @description
+                      WHERE id = @id", conn))
+                {
+                    cmd.Parameters.AddWithValue("id", drawingId);
+                    cmd.Parameters.AddWithValue("drawingType", drawingType);
+                    cmd.Parameters.AddWithValue("discipline", (object)discipline ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("description", (object)description ?? DBNull.Value);
+                    cmd.ExecuteNonQuery();
+                }
+            }
+        }
+
         /// <summary>
         /// Save a complete part with all geometry data.
         /// </summary>
         public static Guid SavePart(DrawingPart part)
         {
             if (CurrentProject == null)
-                throw new InvalidOperationException("No project open. Use MC_OPEN_PROJECT first.");
+                throw new InvalidOperationException("No project open. Use MCOpenProject first.");
 
             using (var conn = new NpgsqlConnection(_connectionString))
             {

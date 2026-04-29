@@ -13,14 +13,14 @@ namespace FirstAcadPlugin
     {
         public const string AppName = "MC_CONSTRUCTOR";
 
-        [CommandMethod("MC_GREET")]
+        [CommandMethod("MCGreet")]
         public void Greet()
         {
             var doc = Application.DocumentManager.MdiActiveDocument;
             doc.Editor.WriteMessage("\nHello World!");
         }
 
-        [CommandMethod("MC_ADD_PART_METADATA")]
+        [CommandMethod("MCAddPartMetadata")]
         public void AddPartMetadata()
         {
             var doc = Application.DocumentManager.MdiActiveDocument;
@@ -69,7 +69,7 @@ namespace FirstAcadPlugin
             }
         }
 
-        [CommandMethod("MC_VIEW_PART_METADATA")]
+        [CommandMethod("MCViewPartMetadata")]
         public void ViewPartMetadata()
         {
             var doc = Application.DocumentManager.MdiActiveDocument;
@@ -98,10 +98,10 @@ namespace FirstAcadPlugin
             }
         }
 
-        [CommandMethod("MC_SHOW_METADATA_PALETTE")]
+        [CommandMethod("MCShowMetadataPalette")]
         public void ShowMetadataPalette() => MetadataPalette.Toggle();
 
-        [CommandMethod("MC_OPEN_PROJECT")]
+        [CommandMethod("MCOpenProject")]
         public void OpenProject()
         {
             var editor = Application.DocumentManager.MdiActiveDocument.Editor;
@@ -115,7 +115,426 @@ namespace FirstAcadPlugin
             }
         }
 
-        [CommandMethod("MC_CONFIG_DATABASE")]
+        /// <summary>
+        /// MCCreateProject - Create a new project: insert a row in
+        /// public.projects, then build the standard folder structure on disk
+        /// under the chosen parent directory. The new project is set as the
+        /// current project on success.
+        /// </summary>
+        [CommandMethod("MCCreateProject")]
+        public void CreateProject()
+        {
+            var doc = Application.DocumentManager.MdiActiveDocument;
+            var editor = doc.Editor;
+
+            // Check connection up front: it's a worse experience to fill in
+            // a dialog and then fail.
+            if (!DatabaseService.TestConnection(out var connError))
+            {
+                editor.WriteMessage($"\nDatabase not reachable: {connError}");
+                editor.WriteMessage("\nUse MCConfigDatabase to set the connection.");
+                return;
+            }
+
+            var defaultParent = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+            var dialog = new CreateProjectDialog(defaultParent);
+
+            if (Application.ShowModalWindow(dialog) != true)
+            {
+                editor.WriteMessage("\nCommand cancelled.");
+                return;
+            }
+
+            // Block duplicate names early so we don't create folders we
+            // can't insert a row for.
+            try
+            {
+                if (DatabaseService.ProjectNameExists(dialog.ProjectName))
+                {
+                    editor.WriteMessage($"\nA project named '{dialog.ProjectName}' already exists.");
+                    return;
+                }
+            }
+            catch (System.Exception ex)
+            {
+                editor.WriteMessage($"\nError checking for existing project: {ex.Message}");
+                return;
+            }
+
+            // Create the folder layout first so a database row never points
+            // at a non-existent directory.
+            try
+            {
+                ProjectFolderLayout.CreateLayout(dialog.ProjectRoot);
+            }
+            catch (System.Exception ex)
+            {
+                editor.WriteMessage($"\nError creating folder structure: {ex.Message}");
+                return;
+            }
+
+            // Insert the project row.
+            Project project;
+            try
+            {
+                project = DatabaseService.CreateProject(
+                    dialog.ProjectName,
+                    dialog.Description,
+                    dialog.ProjectRoot);
+            }
+            catch (System.Exception ex)
+            {
+                editor.WriteMessage($"\nError saving project to database: {ex.Message}");
+                editor.WriteMessage("\nFolders were created but the database row was not.");
+                return;
+            }
+
+            DatabaseService.SetCurrentProject(project);
+            MetadataPalette.RefreshProjectInfo();
+
+            editor.WriteMessage("\n========== Project Created ==========");
+            editor.WriteMessage($"\n  Name:      {project.Name}");
+            editor.WriteMessage($"\n  Directory: {project.Directory}");
+            editor.WriteMessage($"\n  Folders:   {ProjectFolderLayout.AllFolders.Count} created");
+            editor.WriteMessage("\n=====================================");
+        }
+
+        /// <summary>
+        /// MCCreateDrawing - Create a new .dwg file in the current project,
+        /// routed into the proper subfolder by type/discipline. The drawing
+        /// is registered in public.drawings, the type/discipline are stored
+        /// as drawing properties in the file's SummaryInfo, and the document
+        /// is opened in AutoCAD.
+        /// </summary>
+        [CommandMethod("MCCreateDrawing", CommandFlags.Session)]
+        public void CreateDrawing()
+        {
+            var doc = Application.DocumentManager.MdiActiveDocument;
+            var editor = doc.Editor;
+
+            var project = DatabaseService.CurrentProject;
+            if (project == null)
+            {
+                editor.WriteMessage("\nNo project open. Use MCOpenProject or MCCreateProject first.");
+                return;
+            }
+            if (string.IsNullOrEmpty(project.Directory))
+            {
+                editor.WriteMessage("\nCurrent project has no directory recorded. Re-create or update it.");
+                return;
+            }
+            if (!Directory.Exists(project.Directory))
+            {
+                editor.WriteMessage($"\nProject directory does not exist on disk:\n  {project.Directory}");
+                return;
+            }
+
+            var dialog = new CreateDrawingDialog(project);
+            if (Application.ShowModalWindow(dialog) != true)
+            {
+                editor.WriteMessage("\nCommand cancelled.");
+                return;
+            }
+
+            // Duplicate name check (per project) before doing any I/O.
+            try
+            {
+                if (DatabaseService.DrawingNameExistsInCurrentProject(dialog.DrawingName))
+                {
+                    editor.WriteMessage($"\nA drawing named '{dialog.DrawingName}' already exists in this project.");
+                    return;
+                }
+            }
+            catch (System.Exception ex)
+            {
+                editor.WriteMessage($"\nError checking for existing drawing: {ex.Message}");
+                return;
+            }
+
+            // Make sure the destination folder exists (in case the project
+            // was created before this layout existed).
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(dialog.TargetFilePath));
+            }
+            catch (System.Exception ex)
+            {
+                WriteMessageSafe($"\nError creating target folder: {ex.Message}");
+                return;
+            }
+
+            // Pre-allocate the drawing id so we can stamp it into the file
+            // BEFORE SaveAs. This avoids the "open then SaveAs the active
+            // document to its own path" pattern, which throws eNotApplicable.
+            var drawingId = Guid.NewGuid();
+
+            // Build the .dwg on disk - either from the chosen template or
+            // from a default empty database, then stamp the MC drawing
+            // properties into the saved file.
+            try
+            {
+                WriteDrawingFile(
+                    dialog.TargetFilePath,
+                    dialog.TemplatePath,
+                    new DrawingPropertiesData
+                    {
+                        DrawingType = dialog.DrawingType,
+                        Discipline  = dialog.Discipline,
+                        ProjectId   = project.Id,
+                        ProjectName = project.Name,
+                        DrawingId   = drawingId,
+                        Description = dialog.Description
+                    });
+            }
+            catch (System.Exception ex)
+            {
+                WriteMessageSafe($"\nError creating drawing file: {ex.Message}");
+                // Best-effort cleanup so a partial file doesn't block a retry.
+                try { if (File.Exists(dialog.TargetFilePath)) File.Delete(dialog.TargetFilePath); }
+                catch { }
+                return;
+            }
+
+            // Register in DB using the pre-allocated id.
+            Drawing drawingRow;
+            try
+            {
+                drawingRow = DatabaseService.CreateDrawing(
+                    drawingId,
+                    dialog.DrawingName,
+                    dialog.DrawingType,
+                    dialog.Discipline,
+                    dialog.TargetFilePath,
+                    dialog.Description);
+            }
+            catch (System.Exception ex)
+            {
+                WriteMessageSafe($"\nDrawing file was created but DB insert failed: {ex.Message}");
+                WriteMessageSafe($"\nFile location: {dialog.TargetFilePath}");
+                return;
+            }
+
+            // Open the freshly-saved drawing. Note: this may switch the active
+            // document, so use WriteMessageSafe (which always re-fetches the
+            // current editor) for any subsequent messages.
+            try
+            {
+                Application.DocumentManager.Open(dialog.TargetFilePath, false);
+            }
+            catch (System.Exception ex)
+            {
+                WriteMessageSafe($"\nDrawing created but could not be opened: {ex.Message}");
+            }
+
+            WriteMessageSafe("\n========== Drawing Created ==========");
+            WriteMessageSafe($"\n  Name:       {drawingRow.Name}");
+            WriteMessageSafe($"\n  Type:       {DrawingTypes.DisplayName(drawingRow.DrawingType)}");
+            if (!string.IsNullOrEmpty(drawingRow.Discipline))
+                WriteMessageSafe($"\n  Discipline: {drawingRow.Discipline}");
+            if (!string.IsNullOrEmpty(dialog.TemplatePath))
+                WriteMessageSafe($"\n  Template:   {Path.GetFileName(dialog.TemplatePath)}");
+            WriteMessageSafe($"\n  Path:       {drawingRow.FilePath}");
+            WriteMessageSafe("\n======================================");
+        }
+
+        /// <summary>
+        /// Write the new drawing to <paramref name="targetPath"/> and stamp
+        /// the MC drawing properties into it.
+        ///
+        /// If <paramref name="templatePath"/> is provided, the file is
+        /// produced by copying the template (File.Copy) rather than
+        /// ReadDwgFile-ing it. ReadDwgFile uses stricter locking and can
+        /// trip eFileSharingViolation on a .dwg template that no one is
+        /// actively writing - File.Copy handles that case fine. Once the
+        /// copy is on disk we re-open it as a side-database to stamp the
+        /// MC properties and save it back.
+        ///
+        /// When no template is given, a default empty database is saved out
+        /// first and then re-opened the same way.
+        /// </summary>
+        private static void WriteDrawingFile(string targetPath, string templatePath, DrawingPropertiesData properties)
+        {
+            // Step 1: produce the .dwg on disk.
+            if (!string.IsNullOrEmpty(templatePath) && File.Exists(templatePath))
+            {
+                // overwrite:false because the dialog already validated that
+                // the target file does not exist.
+                File.Copy(templatePath, targetPath, overwrite: false);
+            }
+            else
+            {
+                using (var emptyDb = new Database(true, true))
+                {
+                    emptyDb.SaveAs(targetPath, DwgVersion.Current);
+                }
+            }
+
+            // Step 2: stamp the MC properties. We re-open as a side-database
+            // (noDocument=true) and SaveAs back to the same path. This
+            // works for both the template-copied case and the default-empty
+            // case.
+            using (var db = new Database(false, true))
+            {
+                db.ReadDwgFile(targetPath, FileShare.ReadWrite, true, "");
+                db.CloseInput(true);
+                DrawingPropertiesManager.Write(db, properties);
+                db.SaveAs(targetPath, DwgVersion.Current);
+            }
+        }
+
+        /// <summary>
+        /// Write a message to whichever document is active right now. Safe to
+        /// call after operations that switch the active document (creating
+        /// or opening a new drawing) - never throws.
+        /// </summary>
+        private static void WriteMessageSafe(string message)
+        {
+            try
+            {
+                var ed = Application.DocumentManager.MdiActiveDocument?.Editor;
+                ed?.WriteMessage(message);
+            }
+            catch { /* nothing useful we can do here */ }
+        }
+
+        /// <summary>
+        /// MCNavigator - Open the project navigator window. Lists every
+        /// drawing registered for the current project, grouped by Function /
+        /// Detail (and Standards / Sheets), shows a thumbnail preview, and
+        /// lets the user open one with a single click.
+        /// </summary>
+        [CommandMethod("MCNavigator", CommandFlags.Session)]
+        public void OpenNavigator()
+        {
+            var doc = Application.DocumentManager.MdiActiveDocument;
+            var editor = doc?.Editor;
+
+            var project = DatabaseService.CurrentProject;
+            if (project == null)
+            {
+                editor?.WriteMessage("\nNo project open. Use MCOpenProject first.");
+                return;
+            }
+            if (string.IsNullOrEmpty(project.Directory))
+            {
+                editor?.WriteMessage("\nCurrent project has no directory recorded. Re-create or update it.");
+                return;
+            }
+
+            string toOpen = null;
+            try
+            {
+                var window = new NavigatorWindow(project);
+                Application.ShowModalWindow(window);
+                toOpen = window.RequestedOpenPath;
+            }
+            catch (System.Exception ex)
+            {
+                WriteMessageSafe($"\nNavigator error: {ex.Message}");
+                return;
+            }
+
+            // Defer the actual document open until after the modal window has
+            // closed. Calling DocumentManager.Open from inside the navigator
+            // throws "Invalid execution context" because the command engine
+            // will not run that operation while a modal dialog is up.
+            if (!string.IsNullOrEmpty(toOpen))
+            {
+                if (!File.Exists(toOpen))
+                {
+                    WriteMessageSafe($"\nFile no longer exists on disk: {toOpen}");
+                    return;
+                }
+                try
+                {
+                    Application.DocumentManager.Open(toOpen, false);
+                }
+                catch (System.Exception ex)
+                {
+                    WriteMessageSafe($"\nCould not open drawing: {ex.Message}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// MCDrawingProperties - View / edit the MC drawing properties
+        /// (type, discipline, description) on the active drawing. Updates
+        /// both the file's SummaryInfo and the matching public.drawings row
+        /// when the drawing is registered.
+        /// </summary>
+        [CommandMethod("MCDrawingProperties")]
+        public void EditDrawingProperties()
+        {
+            var doc = Application.DocumentManager.MdiActiveDocument;
+            if (doc == null) return;
+            var editor = doc.Editor;
+
+            var current = DrawingPropertiesManager.GetCurrent();
+
+            // If the file doesn't already have ProjectName stamped, fall
+            // back to the open project for nicer display in the dialog.
+            if (string.IsNullOrEmpty(current.ProjectName) && DatabaseService.CurrentProject != null)
+            {
+                current.ProjectName = DatabaseService.CurrentProject.Name;
+                current.ProjectId   = DatabaseService.CurrentProject.Id;
+            }
+
+            var dialog = new DrawingPropertiesDialog(current);
+            if (Application.ShowModalWindow(dialog) != true)
+            {
+                editor.WriteMessage("\nCommand cancelled.");
+                return;
+            }
+
+            var result = dialog.Result;
+            // Preserve the project link / drawing id from before.
+            result.ProjectId   = current.ProjectId;
+            result.ProjectName = current.ProjectName;
+            result.DrawingId   = current.DrawingId;
+
+            try
+            {
+                DrawingPropertiesManager.SetCurrent(result);
+            }
+            catch (System.Exception ex)
+            {
+                editor.WriteMessage($"\nError writing drawing properties: {ex.Message}");
+                return;
+            }
+
+            // If this drawing has a matching DB row, update it too. We try
+            // by DrawingId first, then by file path as a fallback.
+            try
+            {
+                Drawing row = null;
+                if (current.DrawingId.HasValue)
+                {
+                    // No GetById currently, but GetDrawingByPath covers most
+                    // cases since the file lives at doc.Name.
+                }
+                if (row == null && !string.IsNullOrEmpty(doc.Name))
+                {
+                    row = DatabaseService.GetDrawingByPath(doc.Name);
+                }
+                if (row != null)
+                {
+                    DatabaseService.UpdateDrawingProperties(
+                        row.Id, result.DrawingType, result.Discipline, result.Description);
+                    editor.WriteMessage("\nDrawing properties saved (file + database).");
+                }
+                else
+                {
+                    editor.WriteMessage("\nDrawing properties saved (file only - no matching DB row).");
+                }
+            }
+            catch (System.Exception ex)
+            {
+                editor.WriteMessage($"\nDrawing properties saved to file, but DB update failed: {ex.Message}");
+                return;
+            }
+        }
+
+        [CommandMethod("MCConfigDatabase")]
         public void ConfigDatabase()
         {
             var dialog = new DatabaseConfigDialog();
@@ -123,14 +542,14 @@ namespace FirstAcadPlugin
                 Application.DocumentManager.MdiActiveDocument.Editor.WriteMessage("\nDatabase config saved.");
         }
 
-        [CommandMethod("MC_SAVE_PARTS")]
+        [CommandMethod("MCSaveParts")]
         public void SaveParts()
         {
             var doc = Application.DocumentManager.MdiActiveDocument;
             var editor = doc.Editor;
 
             if (DatabaseService.CurrentProject == null)
-            { editor.WriteMessage("\nNo project open. Use MC_OPEN_PROJECT first."); return; }
+            { editor.WriteMessage("\nNo project open. Use MCOpenProject first."); return; }
 
             try
             {
@@ -192,7 +611,7 @@ namespace FirstAcadPlugin
             return savedCount;
         }
 
-        [CommandMethod("MC_PROJECT_STATUS")]
+        [CommandMethod("MCProjectStatus")]
         public void ProjectStatus()
         {
             var doc = Application.DocumentManager.MdiActiveDocument;
@@ -221,14 +640,14 @@ namespace FirstAcadPlugin
             editor.WriteMessage("\n============================================");
         }
 
-        [CommandMethod("MC_LIST_PARTS")]
+        [CommandMethod("MCListParts")]
         public void ListParts()
         {
             var editor = Application.DocumentManager.MdiActiveDocument.Editor;
             var parts = PartPropertiesManager.GetAllPartsInDrawing();
 
             if (parts.Count == 0)
-            { editor.WriteMessage("\nNo parts found. Use MC_ADD_PART_METADATA first."); return; }
+            { editor.WriteMessage("\nNo parts found. Use MCAddPartMetadata first."); return; }
 
             editor.WriteMessage($"\n========== Parts ({parts.Count}) ==========");
             for (int i = 0; i < parts.Count; i++)
@@ -239,17 +658,17 @@ namespace FirstAcadPlugin
         // ==================== NEW PART REFERENCE COMMANDS ====================
 
         /// <summary>
-        /// MC_INSERT_PART - Insert a part from the database into the current drawing.
+        /// MCInsertPart - Insert a part from the database into the current drawing.
         /// Works like xref but the part is editable.
         /// </summary>
-        [CommandMethod("MC_INSERT_PART")]
+        [CommandMethod("MCInsertPart")]
         public void InsertPart()
         {
             var doc = Application.DocumentManager.MdiActiveDocument;
             var editor = doc.Editor;
 
             if (DatabaseService.CurrentProject == null)
-            { editor.WriteMessage("\nNo project open. Use MC_OPEN_PROJECT first."); return; }
+            { editor.WriteMessage("\nNo project open. Use MCOpenProject first."); return; }
 
             // Get available parts from database
             var availableParts = DatabaseService.GetOriginalParts();
@@ -286,7 +705,7 @@ namespace FirstAcadPlugin
                     }
 
                     editor.WriteMessage($"\nInserted part: {partToInsert.PartName}");
-                    editor.WriteMessage("\nThis is a reference. Use MC_OVERRIDE_PART to make local changes.");
+                    editor.WriteMessage("\nThis is a reference. Use MCOverridePart to make local changes.");
                 }
                 else
                 {
@@ -300,10 +719,10 @@ namespace FirstAcadPlugin
         }
 
         /// <summary>
-        /// MC_OVERRIDE_PART - Override a part reference with local changes.
-        /// Changes will sync back to original when MC_UPDATE_ALL_PARTS is run.
+        /// MCOverridePart - Override a part reference with local changes.
+        /// Changes will sync back to original when MCUpdateAllParts is run.
         /// </summary>
-        [CommandMethod("MC_OVERRIDE_PART")]
+        [CommandMethod("MCOverridePart")]
         public void OverridePart()
         {
             var doc = Application.DocumentManager.MdiActiveDocument;
@@ -369,7 +788,7 @@ namespace FirstAcadPlugin
                 {
                     DatabaseService.OverridePart(partId.Value, updatedPart);
                     editor.WriteMessage("\nPart marked as overridden.");
-                    editor.WriteMessage("\nRun MC_UPDATE_ALL_PARTS in the original drawing to sync changes.");
+                    editor.WriteMessage("\nRun MCUpdateAllParts in the original drawing to sync changes.");
                 }
             }
             catch (System.Exception ex)
@@ -379,10 +798,10 @@ namespace FirstAcadPlugin
         }
 
         /// <summary>
-        /// MC_UPDATE_ALL_PARTS - Update all parts in the drawing from database.
+        /// MCUpdateAllParts - Update all parts in the drawing from database.
         /// Applies changes from overridden references.
         /// </summary>
-        [CommandMethod("MC_UPDATE_ALL_PARTS")]
+        [CommandMethod("MCUpdateAllParts")]
         public void UpdateAllParts()
         {
             var doc = Application.DocumentManager.MdiActiveDocument;
@@ -444,9 +863,9 @@ namespace FirstAcadPlugin
         }
 
         /// <summary>
-        /// MC_LIST_DB_PARTS - List all parts in the database for current project.
+        /// MCListDbParts - List all parts in the database for current project.
         /// </summary>
-        [CommandMethod("MC_LIST_DB_PARTS")]
+        [CommandMethod("MCListDbParts")]
         public void ListDatabaseParts()
         {
             var editor = Application.DocumentManager.MdiActiveDocument.Editor;
@@ -472,11 +891,11 @@ namespace FirstAcadPlugin
         // ==================== NESTING COMMANDS ====================
 
         /// <summary>
-        /// MC_CREATE_NEST - Create a nesting layout for plasma cutting.
+        /// MCCreateNest - Create a nesting layout for plasma cutting.
         /// Prompts to select parts, then asks for plate dimensions,
         /// creates a new drawing with flattened 2D outlines optimized on the plate.
         /// </summary>
-        [CommandMethod("MC_CREATE_NEST", CommandFlags.Session)]
+        [CommandMethod("MCCreateNest", CommandFlags.Session)]
         public void CreateNest()
         {
             var doc = Application.DocumentManager.MdiActiveDocument;
@@ -556,31 +975,34 @@ namespace FirstAcadPlugin
             {
                 string newDrawingName = NestingService.CreateNestingDrawing(nestingResult);
 
-                editor.WriteMessage("\n=== Nesting Complete ===");
-                editor.WriteMessage($"\n  Parts placed: {nestingResult.PlacedParts.Count}");
+                // CreateNestingDrawing makes a new doc the active document, so
+                // the editor we captured above is no longer applicable. Use
+                // WriteMessageSafe (which always re-fetches the active editor).
+                WriteMessageSafe("\n=== Nesting Complete ===");
+                WriteMessageSafe($"\n  Parts placed: {nestingResult.PlacedParts.Count}");
 
                 if (nestingResult.UnplacedParts.Count > 0)
                 {
-                    editor.WriteMessage($"\n  Parts that didn't fit: {nestingResult.UnplacedParts.Count}");
+                    WriteMessageSafe($"\n  Parts that didn't fit: {nestingResult.UnplacedParts.Count}");
                     foreach (var unplaced in nestingResult.UnplacedParts)
                     {
-                        editor.WriteMessage($"\n    - {unplaced.PartName} ({unplaced.Width:F1} x {unplaced.Height:F1} mm)");
+                        WriteMessageSafe($"\n    - {unplaced.PartName} ({unplaced.Width:F1} x {unplaced.Height:F1} mm)");
                     }
                 }
 
-                editor.WriteMessage($"\n  Plate utilization: {nestingResult.Efficiency:F1}%");
-                editor.WriteMessage("\n========================");
+                WriteMessageSafe($"\n  Plate utilization: {nestingResult.Efficiency:F1}%");
+                WriteMessageSafe("\n========================");
             }
             catch (System.Exception ex)
             {
-                editor.WriteMessage($"\nError creating nesting drawing: {ex.Message}");
+                WriteMessageSafe($"\nError creating nesting drawing: {ex.Message}");
             }
         }
 
         /// <summary>
-        /// MC_QUICK_NEST - Quick nesting with default plate size (2440x1220).
+        /// MCQuickNest - Quick nesting with default plate size (2440x1220).
         /// </summary>
-        [CommandMethod("MC_QUICK_NEST", CommandFlags.Session)]
+        [CommandMethod("MCQuickNest", CommandFlags.Session)]
         public void QuickNest()
         {
             var doc = Application.DocumentManager.MdiActiveDocument;
@@ -613,8 +1035,16 @@ namespace FirstAcadPlugin
 
             if (nestingResult.PlacedParts.Count > 0)
             {
-                NestingService.CreateNestingDrawing(nestingResult);
-                editor.WriteMessage($"\nQuick nest complete: {nestingResult.PlacedParts.Count} parts, {nestingResult.Efficiency:F1}% efficiency");
+                try
+                {
+                    NestingService.CreateNestingDrawing(nestingResult);
+                    // The active document just changed; use the safe variant.
+                    WriteMessageSafe($"\nQuick nest complete: {nestingResult.PlacedParts.Count} parts, {nestingResult.Efficiency:F1}% efficiency");
+                }
+                catch (System.Exception ex)
+                {
+                    WriteMessageSafe($"\nError creating nesting drawing: {ex.Message}");
+                }
             }
             else
             {
