@@ -440,11 +440,13 @@ namespace FirstAcadPlugin
         private static void WriteNestGeometryToModelSpace(Database db, NestingResult nestingResult)
         {
             // Step 0: ensure the layers exist before clones land on them.
+            // Plate uses color 195 (cyan-blue). Parts use color 1 (red).
+            // Labels use color 7 (white/black depending on background).
             using (var tr = db.TransactionManager.StartTransaction())
             {
                 var lt = (LayerTable)tr.GetObject(db.LayerTableId, OpenMode.ForWrite);
-                CreateLayerIfNotExists(lt, tr, "MC_PLATE", 1);
-                CreateLayerIfNotExists(lt, tr, "MC_PARTS", 3);
+                CreateLayerIfNotExists(lt, tr, "MC_PLATE", 195);
+                CreateLayerIfNotExists(lt, tr, "MC_PARTS", 1);
                 CreateLayerIfNotExists(lt, tr, "MC_LABELS", 7);
                 tr.Commit();
             }
@@ -467,7 +469,7 @@ namespace FirstAcadPlugin
                 {
                     var xform = ComputeNestPartTransform(part);
                     var clones = PartGeometryHelper.CloneGeometryIntoDb(
-                        part.GeometryDwgBytes, db, xform, "MC_PARTS", 3);
+                        part.GeometryDwgBytes, db, xform, "MC_PARTS", 1);
 
                     // Only mark as cloned if we actually got entities back.
                     // If clones list is empty, we'll fall back to drawing a
@@ -521,33 +523,63 @@ namespace FirstAcadPlugin
 
         /// <summary>
         /// Build the complete transform matrix for placing a part in the nest.
-        /// Composition order (applied right-to-left):
-        /// 1. Lay-flat rotation (orients part with smallest dim as thickness)
-        /// 2. Layout rotation (90deg CCW if chosen by guillotine)
-        /// 3. Translation to layout position (NestedX, NestedY, 0)
+        /// Strategy: combine all rotations (lay-flat + layout), apply them to
+        /// the original 8 bbox corners to find the post-rotation bbox min,
+        /// then translate so that new min lands at (NestedX, NestedY, 0).
+        ///
+        /// This is more robust than chaining rotations and translates separately
+        /// because the rotated bbox may shift in unpredictable ways depending
+        /// on the rotation axis and original bbox position.
         /// </summary>
         private static Matrix3d ComputeNestPartTransform(NestingPart part)
         {
             var origMin = part.OriginalMin;
-            var translate = Matrix3d.Displacement(new Vector3d(
-                part.NestedX - origMin.X,
-                part.NestedY - origMin.Y,
-                -origMin.Z));
+            var origMax = part.OriginalMax;
 
-            // If the layout chose to rotate this part 90deg CCW in the XY plane
+            // Step 1: combine lay-flat rotation and (optional) layout rotation.
+            // Both pivot at origMin so origMin stays put through the combined rotation.
+            Matrix3d combinedRotation = part.LayFlatRotation;
             if (part.IsRotated)
             {
-                double origH = part.OriginalMax.Y - part.OriginalMin.Y;
                 var layoutRot = Matrix3d.Rotation(Math.PI / 2, Vector3d.ZAxis, origMin);
-
-                // Apply lay-flat rotation first, then layout rotation, then translation
-                // Right-to-left: translate * layoutRot * layFlatRot
-                return translate * layoutRot * part.LayFlatRotation;
+                combinedRotation = layoutRot * combinedRotation;
             }
 
-            // Apply lay-flat rotation first, then translation
-            // Right-to-left: translate * layFlatRot
-            return translate * part.LayFlatRotation;
+            // Step 2: apply the combined rotation to all 8 corners of the
+            // original axis-aligned bbox to determine the new bbox-min after
+            // rotation. This handles any axis shift the rotations introduce.
+            var corners = new[]
+            {
+                new Point3d(origMin.X, origMin.Y, origMin.Z),
+                new Point3d(origMax.X, origMin.Y, origMin.Z),
+                new Point3d(origMin.X, origMax.Y, origMin.Z),
+                new Point3d(origMax.X, origMax.Y, origMin.Z),
+                new Point3d(origMin.X, origMin.Y, origMax.Z),
+                new Point3d(origMax.X, origMin.Y, origMax.Z),
+                new Point3d(origMin.X, origMax.Y, origMax.Z),
+                new Point3d(origMax.X, origMax.Y, origMax.Z)
+            };
+
+            double newMinX = double.MaxValue;
+            double newMinY = double.MaxValue;
+            double newMinZ = double.MaxValue;
+            foreach (var c in corners)
+            {
+                var r = c.TransformBy(combinedRotation);
+                if (r.X < newMinX) newMinX = r.X;
+                if (r.Y < newMinY) newMinY = r.Y;
+                if (r.Z < newMinZ) newMinZ = r.Z;
+            }
+
+            // Step 3: translate so the new bbox min lands at (NestedX, NestedY, 0).
+            // This guarantees the part fits within its layout cell starting
+            // at the lower-left, regardless of how the rotations shifted it.
+            var translate = Matrix3d.Displacement(new Vector3d(
+                part.NestedX - newMinX,
+                part.NestedY - newMinY,
+                -newMinZ));
+
+            return translate * combinedRotation;
         }
 
         private static void DrawPlateOutline(BlockTableRecord ms, Transaction tr, Database db, NestingResult result)
@@ -560,7 +592,7 @@ namespace FirstAcadPlugin
             plate.AddVertexAt(3, new Point2d(0, result.PlateHeight), 0, 0, 0);
             plate.Closed = true;
             plate.Layer = "MC_PLATE";
-            plate.ColorIndex = 1;
+            plate.ColorIndex = 195;
             ms.AppendEntity(plate);
             tr.AddNewlyCreatedDBObject(plate, true);
         }
@@ -575,7 +607,7 @@ namespace FirstAcadPlugin
             rect.AddVertexAt(3, new Point2d(part.NestedX, part.NestedY + part.Height), 0, 0, 0);
             rect.Closed = true;
             rect.Layer = "MC_PARTS";
-            rect.ColorIndex = 3;
+            rect.ColorIndex = 1;
             ms.AppendEntity(rect);
             tr.AddNewlyCreatedDBObject(rect, true);
         }
