@@ -219,16 +219,23 @@ namespace FirstAcadPlugin
                         false);
 
                     // Walk the clones to apply transform + layer/color.
+                    // Collect ALL cloned entity ObjectIds, not just those marked as "Primary".
+                    // Some entity types (polylines, complex shapes) may not set the IsPrimary
+                    // flag correctly, so we check for IsCloned instead.
                     using (var trT = targetDb.TransactionManager.StartTransaction())
                     {
                         foreach (IdPair pair in idMap)
                         {
-                            if (!pair.IsCloned || !pair.IsPrimary) continue;
+                            // Skip unmapped or null results
                             if (pair.Value.IsNull) continue;
 
+                            // Try to get the cloned entity. We accept any cloned entity,
+                            // not just those marked IsPrimary, because complex geometries
+                            // may have multiple components or non-standard mapping.
                             var clone = trT.GetObject(pair.Value, OpenMode.ForWrite) as Entity;
                             if (clone == null) continue;
 
+                            // Successfully got a cloned entity - apply formatting.
                             try { clone.TransformBy(xform); } catch { }
 
                             if (!string.IsNullOrEmpty(targetLayer))

@@ -407,17 +407,35 @@ namespace FirstAcadPlugin
             var clonedParts = new HashSet<NestingPart>();
             foreach (var part in nestingResult.PlacedParts)
             {
-                if (part.GeometryDwgBytes == null || part.GeometryDwgBytes.Length == 0) continue;
+                if (part.GeometryDwgBytes == null || part.GeometryDwgBytes.Length == 0)
+                {
+                    // No geometry data available - will draw fallback rectangle
+                    continue;
+                }
+
                 try
                 {
                     var xform = ComputeNestPartTransform(part);
                     var clones = PartGeometryHelper.CloneGeometryIntoDb(
                         part.GeometryDwgBytes, db, xform, "MC_PARTS", 3);
-                    if (clones.Count > 0) clonedParts.Add(part);
+
+                    // Only mark as cloned if we actually got entities back.
+                    // If clones list is empty, we'll fall back to drawing a
+                    // rectangle, which means the serialization or cloning failed.
+                    if (clones != null && clones.Count > 0)
+                    {
+                        clonedParts.Add(part);
+                    }
+                    // If clones is null or empty, the part stays out of
+                    // clonedParts and we'll draw a fallback in step 2.
                 }
-                catch
+                catch (System.Exception ex)
                 {
-                    // Will fall through to fallback rectangle in step 2.
+                    // Cloning failed - log it for debugging and fall through
+                    // to fallback rectangle drawing. We intentionally don't
+                    // rethrow here to allow the nest to complete partially.
+                    System.Diagnostics.Debug.WriteLine(
+                        $"Failed to clone nested part geometry: {ex.Message}");
                 }
             }
 
