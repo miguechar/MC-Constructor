@@ -400,6 +400,16 @@ namespace FirstAcadPlugin
             {
                 WriteNestGeometryToModelSpace(newDoc.Database, nestingResult);
 
+                // Force top-down plan view so the nest reads as a 2D layout
+                // even when source parts are 3D solids. Without this, the
+                // viewer sees the parts in iso/3D perspective and mistakes
+                // the slab thickness for parts standing on their edges.
+                try
+                {
+                    SetTopDownView(newDoc.Database);
+                }
+                catch { }
+
                 // Show the new geometry. Wrapped because Editor.Command can
                 // fail in odd contexts and the rest of the work is already
                 // committed.
@@ -656,6 +666,28 @@ namespace FirstAcadPlugin
             info.Position = new Point3d(0, result.PlateHeight + 30, 0);
             ms.AppendEntity(info);
             tr.AddNewlyCreatedDBObject(info, true);
+        }
+
+        /// <summary>
+        /// Set the active viewport to a top-down (plan) view of the WCS XY plane.
+        /// This is critical for nest output - parts cloned from 3D solids would
+        /// otherwise show their thickness as visible depth in iso views,
+        /// making the layout look wrong.
+        /// </summary>
+        private static void SetTopDownView(Database db)
+        {
+            using (var tr = db.TransactionManager.StartTransaction())
+            {
+                var vt = (ViewportTable)tr.GetObject(db.ViewportTableId, OpenMode.ForRead);
+                if (vt.Has("*Active"))
+                {
+                    var vtr = (ViewportTableRecord)tr.GetObject(vt["*Active"], OpenMode.ForWrite);
+                    // Look straight down the Z axis at the XY plane
+                    vtr.ViewDirection = new Vector3d(0, 0, 1);
+                    vtr.ViewTwist = 0;
+                }
+                tr.Commit();
+            }
         }
 
         private static void CreateLayerIfNotExists(LayerTable lt, Transaction tr, string name, short colorIndex)
