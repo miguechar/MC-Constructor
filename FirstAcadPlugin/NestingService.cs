@@ -42,6 +42,12 @@ namespace FirstAcadPlugin
         public bool IsPlaced { get; set; }
 
         /// <summary>
+        /// Matrix to orient the part so it lays flat (smallest dimension becomes Z/thickness).
+        /// Applied before the layout transform. Identity if the part is already well-oriented.
+        /// </summary>
+        public Matrix3d LayFlatRotation { get; set; } = Matrix3d.Identity;
+
+        /// <summary>
         /// Wblock'd .dwg bytes captured at extract time. Lets the nest output
         /// reproduce the exact source geometry (3D solid, polyline, region,
         /// circle, etc.) at the layout-chosen position. Null when
@@ -63,6 +69,44 @@ namespace FirstAcadPlugin
     public static class NestingService
     {
         public const double DEFAULT_SPACING = 10.0;
+
+        /// <summary>
+        /// Analyze the three dimensions of a part and determine the rotation
+        /// needed to lay it flat with the smallest dimension as thickness.
+        /// Returns the rotation matrix and the reoriented dimensions.
+        /// </summary>
+        private static (Matrix3d rotation, double width, double height, double thickness)
+            ComputeLayFlatOrientation(Point3d min, Point3d max)
+        {
+            double dX = Math.Abs(max.X - min.X);
+            double dY = Math.Abs(max.Y - min.Y);
+            double dZ = Math.Abs(max.Z - min.Z);
+
+            // Find the smallest, middle, and largest dimensions
+            var dims = new[] { (dX, 0), (dY, 1), (dZ, 2) };
+            Array.Sort(dims, (a, b) => a.Item1.CompareTo(b.Item1));
+
+            double thickness = dims[0].Item1;  // Smallest = thickness
+            double width = dims[1].Item1;      // Middle = width
+            double height = dims[2].Item1;     // Largest = height
+
+            int thinnestAxis = dims[0].Item2;
+            Matrix3d rotation = Matrix3d.Identity;
+
+            // If the smallest dimension is not on the Z-axis, rotate to lay flat
+            // The rotation brings the thinnest axis to Z (vertical/thickness)
+            if (thinnestAxis == 0)  // X is smallest - rotate around Y axis
+            {
+                rotation = Matrix3d.Rotation(Math.PI / 2, Vector3d.YAxis, min);
+            }
+            else if (thinnestAxis == 1)  // Y is smallest - rotate around X axis
+            {
+                rotation = Matrix3d.Rotation(-Math.PI / 2, Vector3d.XAxis, min);
+            }
+            // If thinnestAxis == 2 (Z is smallest), no rotation needed - already lay flat
+
+            return (rotation, width, height, thickness);
+        }
 
         /// <summary>
         /// Pull NestingParts out of a selection set. Accepts any entity with
@@ -124,16 +168,22 @@ namespace FirstAcadPlugin
                     }
                     catch { }
 
+                    // Compute the orientation needed to lay the part flat
+                    // (smallest dimension becomes thickness/Z)
+                    var (layFlatRot, nestWidth, nestHeight, nestThickness) =
+                        ComputeLayFlatOrientation(ext.MinPoint, ext.MaxPoint);
+
                     parts.Add(new NestingPart
                     {
                         SourceObjectId = selObj.ObjectId,
                         PartName = partName,
                         HasMetadata = hasMetadata,
-                        Width = width,
-                        Height = depth,
-                        Thickness = height,
+                        Width = nestWidth,
+                        Height = nestHeight,
+                        Thickness = nestThickness,
                         OriginalMin = ext.MinPoint,
-                        OriginalMax = ext.MaxPoint
+                        OriginalMax = ext.MaxPoint,
+                        LayFlatRotation = layFlatRot
                     });
                 }
 
@@ -470,39 +520,34 @@ namespace FirstAcadPlugin
         }
 
         /// <summary>
-        /// Build the matrix that maps the source entity's bbox-min onto
-        /// (NestedX, NestedY, 0). When IsRotated is set, the geometry is
-        /// rotated 90deg CCW around its source bbox-min before the
-        /// final translate so the rotated bbox-min ends up at the layout
-        /// position.
+        /// Build the complete transform matrix for placing a part in the nest.
+        /// Composition order (applied right-to-left):
+        /// 1. Lay-flat rotation (orients part with smallest dim as thickness)
+        /// 2. Layout rotation (90deg CCW if chosen by guillotine)
+        /// 3. Translation to layout position (NestedX, NestedY, 0)
         /// </summary>
         private static Matrix3d ComputeNestPartTransform(NestingPart part)
         {
             var origMin = part.OriginalMin;
-
-            if (part.IsRotated)
-            {
-                // Rotation around origMin maps the original bbox
-                // [Xmin, Ymin] -> [Xmax, Ymax] to a new bbox whose
-                // lower-left is at (Xmin - origH, Ymin), where origH is
-                // the *original* Y-extent. We translate that new lower-left
-                // to (NestedX, NestedY) and bring Z to zero.
-                double origH = part.OriginalMax.Y - part.OriginalMin.Y;
-
-                var rot = Matrix3d.Rotation(Math.PI / 2, Vector3d.ZAxis, origMin);
-                var translate = Matrix3d.Displacement(new Vector3d(
-                    part.NestedX + origH - origMin.X,
-                    part.NestedY - origMin.Y,
-                    -origMin.Z));
-
-                // Right-to-left composition: rotate first, then translate.
-                return translate * rot;
-            }
-
-            return Matrix3d.Displacement(new Vector3d(
+            var translate = Matrix3d.Displacement(new Vector3d(
                 part.NestedX - origMin.X,
                 part.NestedY - origMin.Y,
                 -origMin.Z));
+
+            // If the layout chose to rotate this part 90deg CCW in the XY plane
+            if (part.IsRotated)
+            {
+                double origH = part.OriginalMax.Y - part.OriginalMin.Y;
+                var layoutRot = Matrix3d.Rotation(Math.PI / 2, Vector3d.ZAxis, origMin);
+
+                // Apply lay-flat rotation first, then layout rotation, then translation
+                // Right-to-left: translate * layoutRot * layFlatRot
+                return translate * layoutRot * part.LayFlatRotation;
+            }
+
+            // Apply lay-flat rotation first, then translation
+            // Right-to-left: translate * layFlatRot
+            return translate * part.LayFlatRotation;
         }
 
         private static void DrawPlateOutline(BlockTableRecord ms, Transaction tr, Database db, NestingResult result)
