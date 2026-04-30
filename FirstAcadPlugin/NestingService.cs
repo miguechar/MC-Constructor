@@ -210,112 +210,387 @@ namespace FirstAcadPlugin
             return parts;
         }
 
+        /// <summary>
+        /// Pack parts onto the plate using the MAXRECTS algorithm with multi-strategy
+        /// optimization. Tries several sort orders and scoring heuristics, then keeps
+        /// the layout with the most parts placed and best area utilization.
+        ///
+        /// MAXRECTS tracks the set of MAXIMAL free rectangles (rather than guillotine
+        /// splits), which lets later parts use space the previous part didn't fully
+        /// claim. Combined with rotation testing per part, this fits irregular sets
+        /// of parts much tighter than the naive single-pass algorithm.
+        ///
+        /// Method name kept for API compatibility with existing callers.
+        /// </summary>
         public static NestingResult NestPartsGuillotine(List<NestingPart> parts, double plateWidth, double plateHeight, double spacing = DEFAULT_SPACING)
         {
-            var result = new NestingResult
+            if (parts == null || parts.Count == 0)
             {
-                PlateWidth = plateWidth,
-                PlateHeight = plateHeight
+                return new NestingResult { PlateWidth = plateWidth, PlateHeight = plateHeight };
+            }
+
+            // Try multiple sort orders and pick the best result. Different orderings
+            // give very different packings - sorting by area, longest side, height,
+            // and width all dominate in different scenarios. Best-of-N is cheap and
+            // robust for the small part counts typical in CAD nesting.
+            var sortStrategies = new Func<NestingPart, double>[]
+            {
+                p => -(p.Width * p.Height),         // by area, descending
+                p => -Math.Max(p.Width, p.Height),  // by longest side, descending
+                p => -(p.Width + p.Height),         // by perimeter, descending
+                p => -p.Height,                      // by height, descending
+                p => -p.Width                        // by width, descending
             };
 
+            // Try multiple fit-scoring heuristics too
+            var scoringHeuristics = new[] { FitHeuristic.BestShortSide, FitHeuristic.BestLongSide, FitHeuristic.BestArea };
+
+            NestingResult bestResult = null;
+
+            foreach (var sortKey in sortStrategies)
+            {
+                foreach (var heuristic in scoringHeuristics)
+                {
+                    // Work on copies so each strategy starts fresh - the layout
+                    // mutates Width/Height when rotating, which would poison later
+                    // strategies if we shared instances.
+                    var copies = parts.Select(ClonePartForLayout).ToList();
+                    var sorted = copies.OrderBy(sortKey).ToList();
+                    var attempt = PackMaxRects(sorted, plateWidth, plateHeight, spacing, heuristic);
+
+                    if (IsBetterResult(attempt, bestResult))
+                    {
+                        bestResult = attempt;
+                    }
+                }
+            }
+
+            // Propagate the winning placement back onto the caller's part instances
+            // so downstream code (geometry cloning, labeling, etc.) sees the chosen
+            // positions and rotation flags.
+            ApplyResultToOriginals(parts, bestResult);
+
+            return bestResult;
+        }
+
+        /// <summary>Scoring heuristic for picking the best free-rect to place a part in.</summary>
+        private enum FitHeuristic
+        {
+            BestShortSide, // minimize the smaller leftover dimension - tightest packing
+            BestLongSide,  // minimize the larger leftover dimension - balanced packing
+            BestArea       // minimize remaining area in the chosen rect
+        }
+
+        /// <summary>
+        /// One pass of the MAXRECTS bin-packing algorithm. Walks the parts in the
+        /// given order, picks the best-fitting free rectangle (with optional 90°
+        /// rotation), splits all overlapping free rects, and prunes contained ones.
+        /// </summary>
+        private static NestingResult PackMaxRects(
+            List<NestingPart> parts,
+            double plateWidth,
+            double plateHeight,
+            double spacing,
+            FitHeuristic heuristic)
+        {
+            var result = new NestingResult { PlateWidth = plateWidth, PlateHeight = plateHeight };
+
+            // The starting free rectangle is the full plate inset by spacing on
+            // every side, guaranteeing no part lands on the plate edge.
             var freeRects = new List<FreeRect>
             {
                 new FreeRect(spacing, spacing, plateWidth - 2 * spacing, plateHeight - 2 * spacing)
             };
 
-            var sortedParts = parts.OrderByDescending(p => p.Width * p.Height).ToList();
             double totalUsedArea = 0;
 
-            foreach (var part in sortedParts)
+            foreach (var part in parts)
             {
                 int bestIndex = -1;
-                double bestShortSide = double.MaxValue;
+                double bestPrimaryScore = double.MaxValue;
+                double bestSecondaryScore = double.MaxValue;
                 bool bestRotated = false;
 
+                // Try fitting in every free rect, both rotations
                 for (int i = 0; i < freeRects.Count; i++)
                 {
                     var rect = freeRects[i];
 
-                    if (part.Width <= rect.Width && part.Height <= rect.Height)
+                    // Non-rotated fit
+                    if (part.Width <= rect.Width + 1e-9 && part.Height <= rect.Height + 1e-9)
                     {
-                        double shortSide = Math.Min(rect.Width - part.Width, rect.Height - part.Height);
-                        if (shortSide < bestShortSide)
+                        var (primary, secondary) = ScoreFit(part.Width, part.Height, rect, heuristic);
+                        if (primary < bestPrimaryScore ||
+                            (Math.Abs(primary - bestPrimaryScore) < 1e-9 && secondary < bestSecondaryScore))
                         {
-                            bestShortSide = shortSide;
+                            bestPrimaryScore = primary;
+                            bestSecondaryScore = secondary;
                             bestIndex = i;
                             bestRotated = false;
                         }
                     }
 
-                    if (part.Height <= rect.Width && part.Width <= rect.Height)
+                    // Rotated 90° fit
+                    if (part.Height <= rect.Width + 1e-9 && part.Width <= rect.Height + 1e-9)
                     {
-                        double shortSide = Math.Min(rect.Width - part.Height, rect.Height - part.Width);
-                        if (shortSide < bestShortSide)
+                        var (primary, secondary) = ScoreFit(part.Height, part.Width, rect, heuristic);
+                        if (primary < bestPrimaryScore ||
+                            (Math.Abs(primary - bestPrimaryScore) < 1e-9 && secondary < bestSecondaryScore))
                         {
-                            bestShortSide = shortSide;
+                            bestPrimaryScore = primary;
+                            bestSecondaryScore = secondary;
                             bestIndex = i;
                             bestRotated = true;
                         }
                     }
                 }
 
-                if (bestIndex >= 0)
+                if (bestIndex < 0)
                 {
-                    var rect = freeRects[bestIndex];
-
-                    double placeWidth = bestRotated ? part.Height : part.Width;
-                    double placeHeight = bestRotated ? part.Width : part.Height;
-
-                    part.NestedX = rect.X;
-                    part.NestedY = rect.Y;
-
-                    if (bestRotated)
-                    {
-                        // Track the rotation so the geometry transform in
-                        // the output step can apply a 90deg CCW rotation,
-                        // not just a translation.
-                        part.IsRotated = true;
-                        double temp = part.Width;
-                        part.Width = part.Height;
-                        part.Height = temp;
-                    }
-
-                    part.IsPlaced = true;
-                    result.PlacedParts.Add(part);
-                    totalUsedArea += part.Width * part.Height;
-
-                    freeRects.RemoveAt(bestIndex);
-
-                    if (rect.Width - placeWidth - spacing > spacing)
-                    {
-                        freeRects.Add(new FreeRect(
-                            rect.X + placeWidth + spacing,
-                            rect.Y,
-                            rect.Width - placeWidth - spacing,
-                            rect.Height
-                        ));
-                    }
-
-                    if (rect.Height - placeHeight - spacing > spacing)
-                    {
-                        freeRects.Add(new FreeRect(
-                            rect.X,
-                            rect.Y + placeHeight + spacing,
-                            placeWidth,
-                            rect.Height - placeHeight - spacing
-                        ));
-                    }
-                }
-                else
-                {
+                    // No free rect fits this part in either orientation
                     result.UnplacedParts.Add(part);
+                    continue;
                 }
+
+                var bestRect = freeRects[bestIndex];
+                double placedW = bestRotated ? part.Height : part.Width;
+                double placedH = bestRotated ? part.Width : part.Height;
+
+                part.NestedX = bestRect.X;
+                part.NestedY = bestRect.Y;
+                part.IsPlaced = true;
+
+                if (bestRotated)
+                {
+                    part.IsRotated = true;
+                    var t = part.Width;
+                    part.Width = part.Height;
+                    part.Height = t;
+                }
+
+                result.PlacedParts.Add(part);
+                totalUsedArea += part.Width * part.Height;
+
+                // Forbidden zone for future parts: placed footprint + spacing buffer
+                double forbidLeft = part.NestedX - spacing;
+                double forbidRight = part.NestedX + placedW + spacing;
+                double forbidBottom = part.NestedY - spacing;
+                double forbidTop = part.NestedY + placedH + spacing;
+
+                // Split EVERY free rect that overlaps the forbidden zone into up to
+                // 4 sub-rects (left/right/bottom/top of the placed part). This is
+                // what differentiates MAXRECTS from guillotine splitting - we keep
+                // overlapping maximal sub-rects rather than committing to one cut.
+                var newFreeRects = new List<FreeRect>();
+                foreach (var fr in freeRects)
+                {
+                    bool overlaps =
+                        fr.X < forbidRight &&
+                        fr.X + fr.Width > forbidLeft &&
+                        fr.Y < forbidTop &&
+                        fr.Y + fr.Height > forbidBottom;
+
+                    if (!overlaps)
+                    {
+                        newFreeRects.Add(fr);
+                        continue;
+                    }
+
+                    // Left strip (room to the left of placed part within fr)
+                    if (forbidLeft > fr.X)
+                    {
+                        newFreeRects.Add(new FreeRect(
+                            fr.X, fr.Y,
+                            forbidLeft - fr.X,
+                            fr.Height));
+                    }
+                    // Right strip
+                    if (forbidRight < fr.X + fr.Width)
+                    {
+                        newFreeRects.Add(new FreeRect(
+                            forbidRight, fr.Y,
+                            fr.X + fr.Width - forbidRight,
+                            fr.Height));
+                    }
+                    // Bottom strip
+                    if (forbidBottom > fr.Y)
+                    {
+                        newFreeRects.Add(new FreeRect(
+                            fr.X, fr.Y,
+                            fr.Width,
+                            forbidBottom - fr.Y));
+                    }
+                    // Top strip
+                    if (forbidTop < fr.Y + fr.Height)
+                    {
+                        newFreeRects.Add(new FreeRect(
+                            fr.X, forbidTop,
+                            fr.Width,
+                            fr.Y + fr.Height - forbidTop));
+                    }
+                }
+
+                freeRects = PruneFreeRects(newFreeRects);
             }
 
             result.UsedArea = totalUsedArea;
             result.Efficiency = (totalUsedArea / (plateWidth * plateHeight)) * 100;
-
             return result;
+        }
+
+        /// <summary>
+        /// Score a candidate placement: lower is better. Returns (primary, secondary)
+        /// where primary is the heuristic's main score and secondary is a tiebreaker.
+        /// </summary>
+        private static (double primary, double secondary) ScoreFit(
+            double partW, double partH, FreeRect rect, FitHeuristic heuristic)
+        {
+            double leftoverW = rect.Width - partW;
+            double leftoverH = rect.Height - partH;
+            double shortLeftover = Math.Min(leftoverW, leftoverH);
+            double longLeftover = Math.Max(leftoverW, leftoverH);
+
+            switch (heuristic)
+            {
+                case FitHeuristic.BestShortSide:
+                    return (shortLeftover, longLeftover);
+                case FitHeuristic.BestLongSide:
+                    return (longLeftover, shortLeftover);
+                case FitHeuristic.BestArea:
+                    return (rect.Width * rect.Height - partW * partH, shortLeftover);
+                default:
+                    return (shortLeftover, longLeftover);
+            }
+        }
+
+        /// <summary>
+        /// Remove free rectangles that are fully contained within other free rects,
+        /// and any with degenerate (zero/negative) dimensions. The MAXRECTS split
+        /// step routinely produces redundant overlapping rects; pruning them keeps
+        /// the candidate list small and prevents the BSSF score from being fooled
+        /// by a tiny sliver inside a larger rect.
+        /// </summary>
+        private static List<FreeRect> PruneFreeRects(List<FreeRect> rects)
+        {
+            // First pass: drop rects with non-positive dimensions
+            var alive = rects.Where(r => r.Width > 1e-6 && r.Height > 1e-6).ToList();
+
+            // Second pass: drop any rect contained within another
+            var keep = new List<FreeRect>();
+            for (int i = 0; i < alive.Count; i++)
+            {
+                bool contained = false;
+                for (int j = 0; j < alive.Count; j++)
+                {
+                    if (i == j) continue;
+                    if (IsContained(alive[i], alive[j]))
+                    {
+                        contained = true;
+                        break;
+                    }
+                }
+                if (!contained) keep.Add(alive[i]);
+            }
+            return keep;
+        }
+
+        private static bool IsContained(FreeRect inner, FreeRect outer)
+        {
+            return inner.X >= outer.X - 1e-9 &&
+                   inner.Y >= outer.Y - 1e-9 &&
+                   inner.X + inner.Width <= outer.X + outer.Width + 1e-9 &&
+                   inner.Y + inner.Height <= outer.Y + outer.Height + 1e-9;
+        }
+
+        /// <summary>
+        /// Compare a new packing attempt against the current best.
+        /// Better = more parts placed, then higher area utilization as tiebreaker.
+        /// </summary>
+        private static bool IsBetterResult(NestingResult attempt, NestingResult current)
+        {
+            if (current == null) return true;
+            if (attempt.PlacedParts.Count > current.PlacedParts.Count) return true;
+            if (attempt.PlacedParts.Count < current.PlacedParts.Count) return false;
+            return attempt.UsedArea > current.UsedArea;
+        }
+
+        /// <summary>
+        /// Create a shallow copy of a NestingPart suitable for layout trials.
+        /// Width/Height/IsPlaced/IsRotated/NestedX/NestedY are reset to a clean state;
+        /// everything else (geometry bytes, source id, lay-flat rotation) is shared
+        /// since those don't change during layout.
+        /// </summary>
+        private static NestingPart ClonePartForLayout(NestingPart p)
+        {
+            return new NestingPart
+            {
+                SourceObjectId = p.SourceObjectId,
+                PartName = p.PartName,
+                HasMetadata = p.HasMetadata,
+                Width = p.Width,
+                Height = p.Height,
+                Thickness = p.Thickness,
+                OriginalMin = p.OriginalMin,
+                OriginalMax = p.OriginalMax,
+                LayFlatRotation = p.LayFlatRotation,
+                GeometryDwgBytes = p.GeometryDwgBytes
+                // NestedX/Y, IsRotated, IsPlaced default to 0/false
+            };
+        }
+
+        /// <summary>
+        /// Push the placement decisions from <paramref name="best"/> (which holds
+        /// copies) back onto the caller's original NestingPart instances, then
+        /// rebuild best.PlacedParts/UnplacedParts to reference the originals so
+        /// downstream code sees a consistent object identity.
+        /// </summary>
+        private static void ApplyResultToOriginals(List<NestingPart> originals, NestingResult best)
+        {
+            // Reset all originals first
+            foreach (var p in originals)
+            {
+                p.NestedX = 0;
+                p.NestedY = 0;
+                p.IsPlaced = false;
+                p.IsRotated = false;
+            }
+
+            // Build a lookup from SourceObjectId to original
+            var byId = new Dictionary<ObjectId, NestingPart>();
+            foreach (var p in originals)
+            {
+                if (!byId.ContainsKey(p.SourceObjectId))
+                {
+                    byId[p.SourceObjectId] = p;
+                }
+            }
+
+            var newPlaced = new List<NestingPart>();
+            foreach (var copy in best.PlacedParts)
+            {
+                if (byId.TryGetValue(copy.SourceObjectId, out var orig))
+                {
+                    orig.NestedX = copy.NestedX;
+                    orig.NestedY = copy.NestedY;
+                    orig.Width = copy.Width;     // may be swapped vs. input
+                    orig.Height = copy.Height;   // may be swapped vs. input
+                    orig.IsRotated = copy.IsRotated;
+                    orig.IsPlaced = true;
+                    newPlaced.Add(orig);
+                }
+            }
+
+            var newUnplaced = new List<NestingPart>();
+            foreach (var copy in best.UnplacedParts)
+            {
+                if (byId.TryGetValue(copy.SourceObjectId, out var orig))
+                {
+                    newUnplaced.Add(orig);
+                }
+            }
+
+            best.PlacedParts = newPlaced;
+            best.UnplacedParts = newUnplaced;
         }
 
         /// <summary>
