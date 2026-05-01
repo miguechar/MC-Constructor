@@ -69,6 +69,123 @@ namespace FirstAcadPlugin
             }
         }
 
+        /// <summary>
+        /// MCBatchAddPartNames - Apply part names to a multi-object selection
+        /// in one shot. Pops a dialog asking for a prefix and a starting
+        /// serial; each selected entity then gets XData where PartName =
+        /// "{prefix}-{serial}", with the serial auto-incrementing per object.
+        ///
+        /// Example: select 2 entities, prefix "A1LB1-00-D07", start 100 ->
+        /// the two entities are named "A1LB1-00-D07-100" and
+        /// "A1LB1-00-D07-101".
+        ///
+        /// Accepts any entity type (3D solid, polyline, region, ...) so the
+        /// user can label 2D outlines as well as fabrication parts.
+        /// </summary>
+        [CommandMethod("MCBatchAddPartNames")]
+        public void BatchAddPartNames()
+        {
+            var doc = Application.DocumentManager.MdiActiveDocument;
+            if (doc == null) return;
+            var db = doc.Database;
+            var editor = doc.Editor;
+
+            // Object selection. We accept any entity - XData attaches to
+            // anything derived from Entity, and the user might want to name
+            // 2D outlines (polylines, circles) as well as 3D solids.
+            var selOptions = new PromptSelectionOptions
+            {
+                MessageForAdding = "\nSelect objects to name (any entity): ",
+                AllowDuplicates = false
+            };
+
+            var selResult = editor.GetSelection(selOptions);
+
+            if (selResult.Status == PromptStatus.Cancel)
+            {
+                editor.WriteMessage("\nCommand cancelled.");
+                return;
+            }
+            if (selResult.Status != PromptStatus.OK || selResult.Value.Count == 0)
+            {
+                editor.WriteMessage("\nNo objects selected.");
+                return;
+            }
+
+            int count = selResult.Value.Count;
+
+            // Prompt for prefix + starting serial via WPF dialog.
+            var dialog = new BatchPartNameDialog(count);
+            if (Application.ShowModalWindow(dialog) != true)
+            {
+                editor.WriteMessage("\nCommand cancelled.");
+                return;
+            }
+
+            string prefix = dialog.Prefix ?? "";
+            int serial = dialog.StartingSerial;
+
+            // Apply names in a single transaction so a mid-sequence error
+            // either commits the whole batch or rolls it back, never half.
+            int updated = 0;
+            int skipped = 0;
+            string firstApplied = null;
+            string lastApplied = null;
+
+            using (var docLock = doc.LockDocument())
+            using (var tr = db.TransactionManager.StartTransaction())
+            {
+                RegisterApp(db, tr);
+
+                foreach (SelectedObject sel in selResult.Value)
+                {
+                    var entity = tr.GetObject(sel.ObjectId, OpenMode.ForWrite) as Entity;
+                    if (entity == null) { skipped++; continue; }
+
+                    string partName = BatchPartNameDialog.BuildName(prefix, serial);
+
+                    var xdata = new ResultBuffer(
+                        new TypedValue((int)DxfCode.ExtendedDataRegAppName, AppName),
+                        new TypedValue((int)DxfCode.ExtendedDataAsciiString, "PartName"),
+                        new TypedValue((int)DxfCode.ExtendedDataAsciiString, partName)
+                    );
+
+                    try
+                    {
+                        entity.XData = xdata;
+                        if (firstApplied == null) firstApplied = partName;
+                        lastApplied = partName;
+                        updated++;
+                        serial++;
+                    }
+                    catch (System.Exception ex)
+                    {
+                        editor.WriteMessage($"\n  Skipped {entity.GetType().Name}: {ex.Message}");
+                        skipped++;
+                    }
+                }
+
+                tr.Commit();
+            }
+
+            editor.WriteMessage($"\n========== Batch Naming Complete ==========");
+            editor.WriteMessage($"\n  Names applied: {updated}");
+            if (firstApplied != null)
+            {
+                if (updated == 1)
+                    editor.WriteMessage($"\n  Name:          {firstApplied}");
+                else
+                    editor.WriteMessage($"\n  Range:         {firstApplied}  ...  {lastApplied}");
+            }
+            if (skipped > 0)
+                editor.WriteMessage($"\n  Skipped:       {skipped} (could not write XData)");
+            editor.WriteMessage($"\n===========================================");
+
+            // Refresh the metadata palette so newly named parts show up
+            // immediately if the palette is open.
+            try { MetadataPalette.RefreshProjectInfo(); } catch { }
+        }
+
         [CommandMethod("MCViewPartMetadata")]
         public void ViewPartMetadata()
         {
@@ -100,6 +217,35 @@ namespace FirstAcadPlugin
 
         [CommandMethod("MCShowMetadataPalette")]
         public void ShowMetadataPalette() => MetadataPalette.Toggle();
+
+        /// <summary>
+        /// MCMaterialLibrary - Open the per-project material library editor
+        /// where the user manages steel grades, stock plate sizes, and
+        /// extrudable profiles. Requires an open project; the library is
+        /// scoped per-project so different jobs can carry different specs.
+        /// </summary>
+        [CommandMethod("MCMaterialLibrary")]
+        public void OpenMaterialLibrary()
+        {
+            var doc = Application.DocumentManager.MdiActiveDocument;
+            var editor = doc?.Editor;
+
+            if (DatabaseService.CurrentProject == null)
+            {
+                editor?.WriteMessage("\nNo project open. Use MCOpenProject first.");
+                return;
+            }
+
+            //try
+            //{
+            //    var window = new MaterialLibraryWindow();
+            //    Application.ShowModalWindow(window);
+            //}
+            //catch (System.Exception ex)
+            //{
+            //    editor?.WriteMessage($"\nMaterial Library error: {ex.Message}");
+            //}
+        }
 
         [CommandMethod("MCOpenProject")]
         public void OpenProject()

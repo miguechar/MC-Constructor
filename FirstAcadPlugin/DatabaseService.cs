@@ -48,11 +48,12 @@ namespace FirstAcadPlugin
         public const string Template = "Template";
         public const string Titleblock = "Titleblock";
         public const string Sheet = "Sheet";
+        public const string Profile = "Profile";
         public const string Other = "Other";
 
         public static readonly string[] All = {
             BlockLibrary, FunctionalDrawing, DetailDrawing,
-            Template, Titleblock, Sheet, Other
+            Template, Titleblock, Sheet, Profile, Other
         };
 
         /// <summary>True for types that need a discipline (i.e. functional drawings).</summary>
@@ -75,6 +76,7 @@ namespace FirstAcadPlugin
                 case FunctionalDrawing: return System.IO.Path.Combine(@"02 Models", discipline ?? DrawingDisciplines.General);
                 case DetailDrawing:     return @"02 Models\General";
                 case Sheet:             return @"03 Sheets";
+                case Profile:           return @"01 Standards\Profiles";
                 case Other:             return @"00 Admin";
                 default:                return @"00 Admin";
             }
@@ -91,6 +93,7 @@ namespace FirstAcadPlugin
                 case Template:          return "Template";
                 case Titleblock:        return "Titleblock";
                 case Sheet:             return "Sheet";
+                case Profile:           return "Profile (Cross-Section)";
                 case Other:             return "Other";
                 default:                return drawingType;
             }
@@ -108,6 +111,104 @@ namespace FirstAcadPlugin
         public const string HVAC = "HVAC";
 
         public static readonly string[] All = { General, Piping, Electrical, HVAC };
+    }
+
+    /// <summary>
+    /// A steel grade / material spec used by nesting and profiles.
+    /// Mirrors public.materials. Density is stored in kg/m^3.
+    /// </summary>
+    public class Material
+    {
+        public Guid Id { get; set; }
+        public Guid ProjectId { get; set; }
+        public string Name { get; set; }
+        public string Description { get; set; }
+        /// <summary>kg/m^3. Default 7850 (mild steel).</summary>
+        public double Density { get; set; } = 7850;
+        public DateTime CreatedAt { get; set; }
+        public DateTime UpdatedAt { get; set; }
+        public override string ToString() => Name;
+    }
+
+    /// <summary>
+    /// A stock plate size belonging to a material. Mirrors
+    /// public.material_plates. Dimensions in mm, matching the rest of the
+    /// nesting code.
+    /// </summary>
+    public class MaterialPlate
+    {
+        public Guid Id { get; set; }
+        public Guid MaterialId { get; set; }
+        /// <summary>Short code shown in the nesting picker, e.g. "T04".</summary>
+        public string Code { get; set; }
+        public double Width { get; set; }      // mm
+        public double Height { get; set; }     // mm
+        public double Thickness { get; set; }  // mm
+        public string Description { get; set; }
+        /// <summary>True for the plate the nesting dialog should pre-select.</summary>
+        public bool IsDefault { get; set; }
+        public DateTime CreatedAt { get; set; }
+        public DateTime UpdatedAt { get; set; }
+
+        // Material info denormalized for display in the nesting picker.
+        // Populated by GetPlatesForCurrentProject. Not persisted.
+        public string MaterialName { get; set; }
+        public double MaterialDensity { get; set; }
+
+        /// <summary>
+        /// Label shown in nesting / list pickers, e.g.
+        /// "T04 (DH-36, 2438 x 1219 x 10 mm)".
+        /// </summary>
+        public string DisplayLabel
+        {
+            get
+            {
+                string mat = string.IsNullOrEmpty(MaterialName) ? "?" : MaterialName;
+                return $"{Code} ({mat}, {Width:0.#} x {Height:0.#} x {Thickness:0.#} mm)";
+            }
+        }
+
+        public override string ToString() => DisplayLabel;
+    }
+
+    /// <summary>
+    /// A profile (structural T, bulb flat, angle, ...) defined by a 2D
+    /// cross-section .dwg under 01 Standards/Profiles plus a material.
+    /// Mirrors public.profiles.
+    ///
+    /// At insert time, the cross-section drawing's modelspace polyline is
+    /// extruded to the user-specified length to produce a 3D solid.
+    /// </summary>
+    public class Profile
+    {
+        public Guid Id { get; set; }
+        public Guid ProjectId { get; set; }
+        public string Name { get; set; }
+        public string Code { get; set; }
+        public string Description { get; set; }
+        public Guid? MaterialId { get; set; }
+        public Guid? DrawingId { get; set; }
+        /// <summary>Optional override; falls back to material's density when null.</summary>
+        public double? DensityOverride { get; set; }
+        /// <summary>mm^2 - cached cross-section area, computed by the plugin.</summary>
+        public double? CrossSectionArea { get; set; }
+        public DateTime CreatedAt { get; set; }
+        public DateTime UpdatedAt { get; set; }
+
+        // Joined lookups (display only, not persisted directly here).
+        public string MaterialName { get; set; }
+        public double? MaterialDensity { get; set; }
+        public string DrawingFilePath { get; set; }
+        public string DrawingName { get; set; }
+
+        /// <summary>
+        /// Effective density (kg/m^3) used for weight calcs: override wins,
+        /// otherwise the material's density. Returns null when neither is set.
+        /// </summary>
+        public double? EffectiveDensity =>
+            DensityOverride ?? MaterialDensity;
+
+        public override string ToString() => Name;
     }
 
     /// <summary>
@@ -172,6 +273,13 @@ namespace FirstAcadPlugin
         public static Project CurrentProject { get; private set; }
 
         public static void SetConnectionString(string connectionString) => _connectionString = connectionString;
+
+        /// <summary>
+        /// Read-only access to the Npgsql connection string for sister
+        /// services (MaterialLibraryService) that need to open their own
+        /// connections. Stays internal to the assembly.
+        /// </summary>
+        internal static string GetConnectionString() => _connectionString;
 
         public static void SetConnectionString(string host, int port, string database, string username, string password)
         {

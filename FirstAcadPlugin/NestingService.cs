@@ -73,7 +73,17 @@ namespace FirstAcadPlugin
         /// <summary>
         /// Analyze the three dimensions of a part and determine the rotation
         /// needed to lay it flat with the smallest dimension as thickness.
-        /// Returns the rotation matrix and the reoriented dimensions.
+        /// Returns the rotation matrix and the reoriented dimensions
+        /// (width = actual X-extent after rotation, height = actual Y-extent
+        /// after rotation, thickness = actual Z-extent after rotation).
+        ///
+        /// IMPORTANT: width and height correspond to the *real* axis extents
+        /// after lay-flat rotation - they are NOT sorted. Sorting them broke
+        /// 2D shapes (hexagons, irregular polylines) where the bbox X-extent
+        /// is larger than the Y-extent: the layout would think the part was
+        /// "narrow tall" while the actual entity was "wide short", placing
+        /// it in a cell of the wrong aspect ratio and causing overlaps with
+        /// neighbouring parts.
         /// </summary>
         private static (Matrix3d rotation, double width, double height, double thickness)
             ComputeLayFlatOrientation(Point3d min, Point3d max)
@@ -82,28 +92,48 @@ namespace FirstAcadPlugin
             double dY = Math.Abs(max.Y - min.Y);
             double dZ = Math.Abs(max.Z - min.Z);
 
-            // Find the smallest, middle, and largest dimensions
-            var dims = new[] { (dX, 0), (dY, 1), (dZ, 2) };
-            Array.Sort(dims, (a, b) => a.Item1.CompareTo(b.Item1));
+            // Pick the thinnest axis - that's the dimension we want pointing
+            // up (Z) after the lay-flat rotation. Tie-break in favour of Z so
+            // 2D shapes (where dZ is already 0 or near zero) need no rotation.
+            int thinnestAxis;
+            if (dZ <= dX && dZ <= dY)
+                thinnestAxis = 2;
+            else if (dX <= dY)
+                thinnestAxis = 0;
+            else
+                thinnestAxis = 1;
 
-            double thickness = dims[0].Item1;  // Smallest = thickness
-            double width = dims[1].Item1;      // Middle = width
-            double height = dims[2].Item1;     // Largest = height
+            Matrix3d rotation;
+            double width, height, thickness;
 
-            int thinnestAxis = dims[0].Item2;
-            Matrix3d rotation = Matrix3d.Identity;
-
-            // If the smallest dimension is not on the Z-axis, rotate to lay flat
-            // The rotation brings the thinnest axis to Z (vertical/thickness)
-            if (thinnestAxis == 0)  // X is smallest - rotate around Y axis
+            if (thinnestAxis == 2)
             {
+                // Z is already the smallest - no rotation needed.
+                // Preserve the actual XY extents exactly as drawn so the
+                // layout cell size matches the rendered footprint.
+                rotation = Matrix3d.Identity;
+                width = dX;
+                height = dY;
+                thickness = dZ;
+            }
+            else if (thinnestAxis == 0)
+            {
+                // X is thinnest - rotate +90deg about Y axis to bring X to Z.
+                // After rotation: X-extent = dZ, Y-extent = dY, Z-extent = dX.
                 rotation = Matrix3d.Rotation(Math.PI / 2, Vector3d.YAxis, min);
+                width = dZ;
+                height = dY;
+                thickness = dX;
             }
-            else if (thinnestAxis == 1)  // Y is smallest - rotate around X axis
+            else
             {
+                // Y is thinnest - rotate -90deg about X axis to bring Y to Z.
+                // After rotation: X-extent = dX, Y-extent = dZ, Z-extent = dY.
                 rotation = Matrix3d.Rotation(-Math.PI / 2, Vector3d.XAxis, min);
+                width = dX;
+                height = dZ;
+                thickness = dY;
             }
-            // If thinnestAxis == 2 (Z is smallest), no rotation needed - already lay flat
 
             return (rotation, width, height, thickness);
         }

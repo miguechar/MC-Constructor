@@ -15,6 +15,7 @@ namespace FirstAcadPlugin
         public const string Templates       = @"01 Standards\Templates";
         public const string Titleblocks     = @"01 Standards\Titleblocks";
         public const string Blocks          = @"01 Standards\Blocks";
+        public const string Profiles        = @"01 Standards\Profiles";
         public const string Models          = @"02 Models";
         public const string ModelsGeneral   = @"02 Models\General";
         public const string ModelsPiping    = @"02 Models\Piping";
@@ -35,6 +36,7 @@ namespace FirstAcadPlugin
             Templates,
             Titleblocks,
             Blocks,
+            Profiles,
             Models,
             ModelsGeneral,
             ModelsPiping,

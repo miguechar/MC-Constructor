@@ -169,6 +169,14 @@ namespace FirstAcadPlugin
         /// Caller MUST NOT have an open transaction over targetDb when this
         /// is called - WblockCloneObjects works at the database level and
         /// the post-process walk opens its own transaction.
+        ///
+        /// Implementation note: instead of trusting <c>IdPair.IsCloned</c>
+        /// (which behaves inconsistently across entity types - LWPOLYLINE
+        /// in particular has been observed to skip the flag, dropping the
+        /// real entity from the result and leaving callers with only a
+        /// fallback bounding rectangle), we snapshot the target modelspace
+        /// before the clone call and diff against it afterwards. Any entity
+        /// that wasn't there before is by definition a clone we just made.
         /// </summary>
         public static List<ObjectId> CloneGeometryIntoDb(
             byte[] dwgBytes,
@@ -201,12 +209,19 @@ namespace FirstAcadPlugin
                     }
                     if (sourceIds.Count == 0) return clonedIds;
 
-                    // Resolve the target modelspace.
+                    // Snapshot the target modelspace BEFORE cloning so we can
+                    // identify newly-added clones afterwards by simple set
+                    // difference. This is what lets us reliably catch
+                    // LWPOLYLINE / polyline / region clones whose IdPair flags
+                    // don't behave the way the docs imply.
                     ObjectId targetMsId;
+                    var preExisting = new HashSet<ObjectId>();
                     using (var trT = targetDb.TransactionManager.StartTransaction())
                     {
                         var btT = (BlockTable)trT.GetObject(targetDb.BlockTableId, OpenMode.ForRead);
                         targetMsId = btT[BlockTableRecord.ModelSpace];
+                        var msT = (BlockTableRecord)trT.GetObject(targetMsId, OpenMode.ForRead);
+                        foreach (ObjectId id in msT) preExisting.Add(id);
                         trT.Commit();
                     }
 
@@ -218,25 +233,22 @@ namespace FirstAcadPlugin
                         DuplicateRecordCloning.Replace,
                         false);
 
-                    // Walk the clones to apply transform + layer/color.
-                    // CRITICAL: filter on IsCloned to avoid transforming existing
-                    // entities in the target db (e.g. template title block content).
-                    // We deliberately drop the IsPrimary check because some entity
-                    // types (polylines, complex shapes) don't set IsPrimary even on
-                    // their main clone.
+                    // Walk the target modelspace and treat anything that
+                    // wasn't there before as a freshly-added clone. Apply
+                    // the transform + layer/color so it lands at the layout
+                    // position with the right styling. Pre-existing entities
+                    // (e.g. titleblock geometry from a template) are
+                    // untouched because they're in <c>preExisting</c>.
                     using (var trT = targetDb.TransactionManager.StartTransaction())
                     {
-                        foreach (IdPair pair in idMap)
+                        var msT = (BlockTableRecord)trT.GetObject(targetMsId, OpenMode.ForRead);
+                        foreach (ObjectId id in msT)
                         {
-                            // Only newly cloned entities - skip references to
-                            // pre-existing target objects (layers, blocks, etc.)
-                            if (!pair.IsCloned) continue;
-                            if (pair.Value.IsNull) continue;
+                            if (preExisting.Contains(id)) continue;
 
-                            var clone = trT.GetObject(pair.Value, OpenMode.ForWrite) as Entity;
+                            var clone = trT.GetObject(id, OpenMode.ForWrite) as Entity;
                             if (clone == null) continue;
 
-                            // Successfully got a cloned entity - apply formatting.
                             try { clone.TransformBy(xform); } catch { }
 
                             if (!string.IsNullOrEmpty(targetLayer))
@@ -248,7 +260,7 @@ namespace FirstAcadPlugin
                                 try { clone.ColorIndex = targetColorIndex.Value; } catch { }
                             }
 
-                            clonedIds.Add(pair.Value);
+                            clonedIds.Add(id);
                         }
                         trT.Commit();
                     }
