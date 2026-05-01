@@ -100,6 +100,7 @@ Requirements:
 - Part weight should be calculated from part geometry volume × density
 - If geometry data is insufficient to calculate weight, still display thickness
   and leave weight blank
+- Show weight inside of `MCShowPropertiesPalette`
 
 ## Acceptance Criteria
 - User can open the material library window
