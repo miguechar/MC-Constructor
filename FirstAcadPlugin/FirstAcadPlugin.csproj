@@ -117,6 +117,9 @@
     <Compile Include="DrawingPropertiesDialog.cs" />
     <Compile Include="DrawingPropertiesManager.cs" />
     <Compile Include="InsertPartDialog.cs" />
+    <Compile Include="InsertProfileDialog.cs" />
+    <Compile Include="ProfilePlotDialog.cs" />
+    <Compile Include="ProfilePlotService.cs" />
     <Compile Include="MaterialLibraryService.cs" />
     <Compile Include="MaterialLibraryWindow.cs" />
     <Compile Include="MetadataPalette.cs" />

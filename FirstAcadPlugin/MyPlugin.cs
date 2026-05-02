@@ -116,6 +116,12 @@ namespace FirstAcadPlugin
             refsPanel.Source.Items.Add(MakeButton("List DB\nParts",     "MCListDbParts",     ColRefs));
             tab.Panels.Add(refsPanel.Panel);
 
+            // ---------- PROFILES ----------
+            var profilesPanel = MakePanel("Profiles");
+            profilesPanel.Source.Items.Add(MakeButton("Insert\nProfile",     "MCInsertProfile",      ColParts));
+            profilesPanel.Source.Items.Add(MakeButton("Profile\nPlot",       "MCCreateProfilePlot",  ColParts));
+            tab.Panels.Add(profilesPanel.Panel);
+
             // ---------- NESTING ----------
             var nestingPanel = MakePanel("Nesting");
             nestingPanel.Source.Items.Add(MakeButton("Create\nNest", "MCCreateNest", ColNesting));

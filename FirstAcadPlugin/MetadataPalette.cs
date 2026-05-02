@@ -250,14 +250,14 @@ namespace FirstAcadPlugin
     {
         public SectionHeader(string title)
         {
-            Height = 24;
+            Height = 28;
             Dock = DockStyle.Top;
             BackColor = MetadataPaletteControl.HeaderBgColor;
 
             Controls.Add(new Label
             {
                 Text = "▼",
-                Location = new DrawingPoint(6, 4),
+                Location = new DrawingPoint(8, 6),
                 Size = new DrawingSize(16, 16),
                 ForeColor = MetadataPaletteControl.HeaderTextColor,
                 Font = new DrawingFont("Segoe UI", 8),
@@ -267,7 +267,7 @@ namespace FirstAcadPlugin
             Controls.Add(new Label
             {
                 Text = title,
-                Location = new DrawingPoint(24, 4),
+                Location = new DrawingPoint(26, 5),
                 AutoSize = true,
                 ForeColor = MetadataPaletteControl.HeaderTextColor,
                 Font = new DrawingFont("Segoe UI", 9, DrawingFontStyle.Bold),
@@ -289,7 +289,7 @@ namespace FirstAcadPlugin
 
         public PropertyRow(string label, bool editable = false, bool altRow = false)
         {
-            Height = 24;
+            Height = 28;
             Dock = DockStyle.Top;
             BackColor = altRow ? MetadataPaletteControl.RowAltColor : MetadataPaletteControl.BgColor;
 
@@ -303,7 +303,7 @@ namespace FirstAcadPlugin
                 Margin = new Padding(0),
                 CellBorderStyle = TableLayoutPanelCellBorderStyle.None,
             };
-            table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 105));
+            table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 90));
             table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             table.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
@@ -315,7 +315,8 @@ namespace FirstAcadPlugin
                 Font = new DrawingFont("Segoe UI", 9),
                 BackColor = BackColor,
                 TextAlign = System.Drawing.ContentAlignment.MiddleLeft,
-                Padding = new Padding(8, 0, 0, 0),
+                Padding = new Padding(10, 0, 4, 0),
+                AutoEllipsis = false,
             };
             table.Controls.Add(labelCtrl, 0, 0);
 
@@ -341,7 +342,7 @@ namespace FirstAcadPlugin
                     Font = new DrawingFont("Segoe UI", 9),
                     BackColor = BackColor,
                     TextAlign = System.Drawing.ContentAlignment.MiddleLeft,
-                    Padding = new Padding(4, 0, 4, 0),
+                    Padding = new Padding(6, 0, 4, 0),
                 };
                 table.Controls.Add(_valueLabel, 1, 0);
             }
@@ -384,16 +385,16 @@ namespace FirstAcadPlugin
             var buttonPanel = new Panel
             {
                 Dock = DockStyle.Top,
-                Height = 36,
+                Height = 40,
                 BackColor = MetadataPaletteControl.BgColor,
-                Padding = new Padding(8, 4, 8, 4),
+                Padding = new Padding(10, 6, 10, 6),
             };
 
-            _openBtn = MakeButton("Open Project", 0, 4, 115);
+            _openBtn = MakeButton("Open Project", 0, 5, 110);
             _openBtn.Click += OnOpenProject;
             buttonPanel.Controls.Add(_openBtn);
 
-            _saveBtn = MakeButton("Save Parts", 121, 4, 95);
+            _saveBtn = MakeButton("Save Parts", 116, 5, 90);
             _saveBtn.BackColor = DrawingColor.FromArgb(40, 120, 40);
             _saveBtn.Enabled = false;
             _saveBtn.Click += OnSaveAll;
@@ -416,7 +417,7 @@ namespace FirstAcadPlugin
             {
                 Text = text,
                 Location = new DrawingPoint(x, y),
-                Size = new DrawingSize(width, 26),
+                Size = new DrawingSize(width, 28),
                 FlatStyle = FlatStyle.Flat,
                 BackColor = DrawingColor.FromArgb(70, 70, 75),
                 ForeColor = MetadataPaletteControl.ValueColor,
@@ -531,15 +532,15 @@ namespace FirstAcadPlugin
             var applyPanel = new Panel
             {
                 Dock = DockStyle.Top,
-                Height = 36,
+                Height = 40,
                 BackColor = MetadataPaletteControl.BgColor,
-                Padding = new Padding(8, 4, 8, 4),
+                Padding = new Padding(10, 6, 10, 6),
             };
             _applyBtn = new Button
             {
                 Text = "Apply",
-                Location = new DrawingPoint(0, 4),
-                Size = new DrawingSize(80, 26),
+                Location = new DrawingPoint(0, 6),
+                Size = new DrawingSize(80, 28),
                 FlatStyle = FlatStyle.Flat,
                 BackColor = DrawingColor.FromArgb(0, 122, 204),
                 ForeColor = MetadataPaletteControl.ValueColor,
@@ -555,13 +556,13 @@ namespace FirstAcadPlugin
             _partNameRow = new PropertyRow("Part Name", editable: true);
             _materialRow = new PropertyRow("Material",  editable: false, altRow: true);
 
-            var sep = new Panel { Dock = DockStyle.Top, Height = 6, BackColor = MetadataPaletteControl.BgColor };
+            var sep = new Panel { Dock = DockStyle.Top, Height = 10, BackColor = MetadataPaletteControl.BgColor };
 
-            _heightRow = new PropertyRow("Height Z (mm)", altRow: true);
-            _depthRow  = new PropertyRow("Depth  Y (mm)");
-            _widthRow  = new PropertyRow("Width  X (mm)", altRow: true);
+            _heightRow = new PropertyRow("Height Z", altRow: true);
+            _depthRow  = new PropertyRow("Depth Y");
+            _widthRow  = new PropertyRow("Width X", altRow: true);
 
-            var sep2 = new Panel { Dock = DockStyle.Top, Height = 6, BackColor = MetadataPaletteControl.BgColor };
+            var sep2 = new Panel { Dock = DockStyle.Top, Height = 10, BackColor = MetadataPaletteControl.BgColor };
 
             _layerRow  = new PropertyRow("Layer",  altRow: true);
             _handleRow = new PropertyRow("Handle");
@@ -583,12 +584,12 @@ namespace FirstAcadPlugin
             {
                 Text = "Select a 3D solid",
                 Dock = DockStyle.Top,
-                Height = 32,
+                Height = 36,
                 ForeColor = MetadataPaletteControl.LabelColor,
                 BackColor = MetadataPaletteControl.BgColor,
                 Font = new DrawingFont("Segoe UI", 9),
                 TextAlign = System.Drawing.ContentAlignment.MiddleLeft,
-                Padding = new Padding(12, 0, 0, 0),
+                Padding = new Padding(14, 0, 0, 0),
             };
 
             var header = new SectionHeader("MC Part Properties");

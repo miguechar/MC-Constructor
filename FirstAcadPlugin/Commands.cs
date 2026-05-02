@@ -1351,5 +1351,367 @@ namespace FirstAcadPlugin
                 editor.WriteMessage("\nNo parts could fit on default plate (2440x1220mm).");
             }
         }
+
+        /// <summary>
+        /// MCInsertProfile - Pick a Profile cross-section drawing, then either:
+        ///   • select one or more Lines → each solid follows that line's direction and length, or
+        ///   • press Enter → pick an insertion point and use the dialog length along Z.
+        /// </summary>
+        [CommandMethod("MCInsertProfile")]
+        public void InsertProfile()
+        {
+            var doc = Application.DocumentManager.MdiActiveDocument;
+            var editor = doc.Editor;
+
+            if (DatabaseService.CurrentProject == null)
+            { editor.WriteMessage("\nNo project open. Use MCOpenProject first."); return; }
+
+            var profileDrawings = MaterialLibraryService.GetProfileDrawings();
+            if (profileDrawings.Count == 0)
+            { editor.WriteMessage("\nNo profile drawings found. Create a drawing with type 'Profile' first."); return; }
+
+            var dialog = new InsertProfileDialog(profileDrawings);
+            if (Application.ShowModalWindow(dialog) != true || dialog.SelectedDrawing == null)
+            { editor.WriteMessage("\nCommand cancelled."); return; }
+
+            var profileDwg = dialog.SelectedDrawing;
+
+            if (!File.Exists(profileDwg.FilePath))
+            { editor.WriteMessage($"\nProfile file not found: {profileDwg.FilePath}"); return; }
+
+            // ---------------------------------------------------------------
+            // Placement: select lines OR press Enter for a manual point.
+            // ---------------------------------------------------------------
+            var db = doc.Database;
+
+            var lineFilter = new SelectionFilter(new[]
+            {
+                new TypedValue((int)DxfCode.Start, "LINE")
+            });
+
+            editor.WriteMessage("\nSelect lines to follow (or press Enter to specify insertion point):");
+            var selResult = editor.GetSelection(lineFilter);
+
+            if (selResult.Status == PromptStatus.OK && selResult.Value.Count > 0)
+            {
+                // --- Multi-line mode -------------------------------------------
+                // Read all line geometry first, then create one solid per line.
+                var lines = new List<(Point3d Start, Vector3d Dir, double Len)>();
+                using (var tr = db.TransactionManager.StartTransaction())
+                {
+                    foreach (SelectedObject so in selResult.Value)
+                    {
+                        var line = tr.GetObject(so.ObjectId, OpenMode.ForRead) as Line;
+                        if (line == null || line.Length < 1e-10) continue;
+                        lines.Add((
+                            line.StartPoint,
+                            (line.EndPoint - line.StartPoint).GetNormal(),
+                            line.Length));
+                    }
+                    tr.Commit();
+                }
+
+                if (lines.Count == 0)
+                { editor.WriteMessage("\nNo valid lines found in selection."); return; }
+
+                int ok = 0, failed = 0;
+                foreach (var (start, dir, len) in lines)
+                {
+                    try
+                    {
+                        var ids = CreateExtrudedProfile(profileDwg.FilePath, len, db);
+                        if (ids.Count == 0) { failed++; continue; }
+
+                        var xform = BuildAlignmentTransform(Vector3d.ZAxis, dir, start);
+                        using (var tr = db.TransactionManager.StartTransaction())
+                        {
+                            foreach (var id in ids)
+                                (tr.GetObject(id, OpenMode.ForWrite) as Entity)?.TransformBy(xform);
+                            tr.Commit();
+                        }
+                        ok++;
+                    }
+                    catch (System.Exception ex)
+                    {
+                        editor.WriteMessage($"\nFailed for one line: {ex.Message}");
+                        failed++;
+                    }
+                }
+
+                editor.WriteMessage($"\nInserted {ok} profile(s) of '{profileDwg.Name}'." +
+                    (failed > 0 ? $" {failed} failed." : ""));
+            }
+            else if (selResult.Status == PromptStatus.Error ||
+                     selResult.Status == PromptStatus.None)
+            {
+                // --- Manual single-point mode ----------------------------------
+                var ptResult = editor.GetPoint("\nSpecify insertion point: ");
+                if (ptResult.Status != PromptStatus.OK)
+                { editor.WriteMessage("\nCommand cancelled."); return; }
+
+                try
+                {
+                    var ids = CreateExtrudedProfile(profileDwg.FilePath, dialog.Length, db);
+                    if (ids.Count == 0)
+                    {
+                        editor.WriteMessage(
+                            "\nFailed to create solid — no closed curves or regions found in the profile drawing.");
+                        return;
+                    }
+
+                    var xform = BuildAlignmentTransform(Vector3d.ZAxis, Vector3d.ZAxis, ptResult.Value);
+                    using (var tr = db.TransactionManager.StartTransaction())
+                    {
+                        foreach (var id in ids)
+                            (tr.GetObject(id, OpenMode.ForWrite) as Entity)?.TransformBy(xform);
+                        tr.Commit();
+                    }
+
+                    editor.WriteMessage(
+                        $"\nInserted '{profileDwg.Name}' — {dialog.Length:F2} units along Z.");
+                }
+                catch (System.Exception ex)
+                {
+                    editor.WriteMessage($"\nError: {ex.Message}");
+                }
+            }
+            else
+            {
+                editor.WriteMessage("\nCommand cancelled.");
+            }
+        }
+
+        /// <summary>
+        /// Builds a Matrix3d that first rotates <paramref name="from"/> onto
+        /// <paramref name="to"/>, then displaces the origin to <paramref name="translation"/>.
+        /// Used to align a Z-extruded solid with an arbitrary line direction.
+        /// </summary>
+        private static Matrix3d BuildAlignmentTransform(
+            Vector3d from, Vector3d to, Point3d translation)
+        {
+            from = from.GetNormal();
+            to   = to.GetNormal();
+
+            Matrix3d rot;
+            if (from.IsParallelTo(to))
+            {
+                // Parallel — either identity or 180° flip.
+                rot = from.DotProduct(to) > 0
+                    ? Matrix3d.Identity
+                    : Matrix3d.Rotation(Math.PI,
+                        from.IsParallelTo(Vector3d.XAxis) ? Vector3d.YAxis : Vector3d.XAxis,
+                        Point3d.Origin);
+            }
+            else
+            {
+                var axis  = from.CrossProduct(to);
+                var angle = from.GetAngleTo(to);
+                rot = Matrix3d.Rotation(angle, axis, Point3d.Origin);
+            }
+
+            return Matrix3d.Displacement(translation - Point3d.Origin) * rot;
+        }
+
+        /// <summary>
+        /// Opens the profile drawing as a side database, builds a Solid3d by extruding the
+        /// cross-section geometry found in model space (Region or closed curves), then
+        /// WblockClones the solid into targetDb at the world origin.
+        /// Returns the ObjectIds of the entities added to targetDb.
+        /// </summary>
+        private static List<ObjectId> CreateExtrudedProfile(
+            string profileFilePath, double length, Database targetDb)
+        {
+            var result = new List<ObjectId>();
+
+            using (var sideDb = new Database(false, true))
+            {
+                sideDb.ReadDwgFile(profileFilePath, FileShare.ReadWrite, true, "");
+                sideDb.CloseInput(true);
+
+                // Build the solid inside the side database so WblockClone can copy it.
+                var solidIds = new ObjectIdCollection();
+                using (var tr = sideDb.TransactionManager.StartTransaction())
+                {
+                    var bt = (BlockTable)tr.GetObject(sideDb.BlockTableId, OpenMode.ForRead);
+                    var ms = (BlockTableRecord)tr.GetObject(
+                        bt[BlockTableRecord.ModelSpace], OpenMode.ForWrite);
+
+                    var curves = new DBObjectCollection();
+                    Region existingRegion = null;
+
+                    foreach (ObjectId id in ms)
+                    {
+                        var ent = tr.GetObject(id, OpenMode.ForRead);
+                        if (ent is Region r)
+                        {
+                            existingRegion = r;
+                            break; // Prefer a pre-built region if one exists.
+                        }
+                        if (ent is Curve c)
+                            curves.Add(c);
+                    }
+
+                    Region regionToExtrude = existingRegion;
+
+                    if (regionToExtrude == null && curves.Count > 0)
+                    {
+                        // CreateFromCurves returns new (non-DB-resident) Region objects.
+                        var created = Region.CreateFromCurves(curves);
+                        if (created.Count > 0)
+                        {
+                            // Add the first region to the side DB so ACIS operations work.
+                            var primary = (Region)created[0];
+                            ms.AppendEntity(primary);
+                            tr.AddNewlyCreatedDBObject(primary, true);
+
+                            // Union any additional regions (e.g. multiple closed loops).
+                            for (int i = 1; i < created.Count; i++)
+                            {
+                                var extra = (Region)created[i];
+                                try { primary.BooleanOperation(BooleanOperationType.BoolUnite, extra); }
+                                catch { }
+                                extra.Dispose();
+                            }
+
+                            regionToExtrude = primary;
+                        }
+                    }
+
+                    if (regionToExtrude != null)
+                    {
+                        var solid = new Solid3d();
+                        // Extrude along the Z axis (perpendicular to the XY cross-section plane).
+                        solid.Extrude(regionToExtrude, length, 0.0);
+                        ms.AppendEntity(solid);
+                        tr.AddNewlyCreatedDBObject(solid, true);
+                        solidIds.Add(solid.ObjectId);
+                    }
+
+                    tr.Commit();
+                }
+
+                if (solidIds.Count == 0) return result;
+
+                // Snapshot target model space so we can identify the newly cloned entities.
+                ObjectId targetMsId;
+                var preExisting = new HashSet<ObjectId>();
+                using (var tr = targetDb.TransactionManager.StartTransaction())
+                {
+                    var bt = (BlockTable)tr.GetObject(targetDb.BlockTableId, OpenMode.ForRead);
+                    targetMsId = bt[BlockTableRecord.ModelSpace];
+                    var ms = (BlockTableRecord)tr.GetObject(targetMsId, OpenMode.ForRead);
+                    foreach (ObjectId id in ms) preExisting.Add(id);
+                    tr.Commit();
+                }
+
+                sideDb.WblockCloneObjects(
+                    solidIds, targetMsId, new IdMapping(),
+                    DuplicateRecordCloning.Replace, false);
+
+                // Collect what was added.
+                using (var tr = targetDb.TransactionManager.StartTransaction())
+                {
+                    var ms = (BlockTableRecord)tr.GetObject(targetMsId, OpenMode.ForRead);
+                    foreach (ObjectId id in ms)
+                    {
+                        if (!preExisting.Contains(id))
+                            result.Add(id);
+                    }
+                    tr.Commit();
+                }
+            }
+
+            return result;
+        }
+
+        // ====================================================================
+        // MCCreateProfilePlot
+        // ====================================================================
+
+        /// <summary>
+        /// MCCreateProfilePlot - Generates a profile-plot process sheet for a chosen
+        /// cross-section profile.  The sheet contains a front elevation, plan view and
+        /// end (cross-section) view, all scaled to fit on a 2000 × 1500 mm sheet while
+        /// showing true-value dimensions.
+        /// </summary>
+        [CommandMethod("MCCreateProfilePlot")]
+        public void CreateProfilePlot()
+        {
+            var doc    = Application.DocumentManager.MdiActiveDocument;
+            var editor = doc.Editor;
+
+            if (DatabaseService.CurrentProject == null)
+            { editor.WriteMessage("\nNo project open. Use MCOpenProject first."); return; }
+
+            var profileDrawings = MaterialLibraryService.GetProfileDrawings();
+            if (profileDrawings.Count == 0)
+            { editor.WriteMessage("\nNo profile drawings found. Create a Profile-type drawing first."); return; }
+
+            // --- Optional: pre-fill length from a selected solid ---
+            double suggestedLength = 0;
+            var solidOpts = new PromptEntityOptions(
+                "\nSelect a profile solid to read its length (or press Enter to enter manually): ");
+            solidOpts.SetRejectMessage("\nSelect a 3D Solid or press Enter.");
+            solidOpts.AddAllowedClass(typeof(Solid3d), true);
+            solidOpts.AllowNone = true;
+
+            var solidResult = editor.GetEntity(solidOpts);
+            if (solidResult.Status == PromptStatus.OK)
+            {
+                using (var tr = doc.Database.TransactionManager.StartTransaction())
+                {
+                    var solid = tr.GetObject(solidResult.ObjectId, OpenMode.ForRead) as Solid3d;
+                    if (solid != null)
+                    {
+                        var ext = solid.GeometricExtents;
+                        double dx = ext.MaxPoint.X - ext.MinPoint.X;
+                        double dy = ext.MaxPoint.Y - ext.MinPoint.Y;
+                        double dz = ext.MaxPoint.Z - ext.MinPoint.Z;
+                        suggestedLength = Math.Max(dx, Math.Max(dy, dz));
+                    }
+                    tr.Commit();
+                }
+            }
+            else if (solidResult.Status == PromptStatus.Cancel)
+            { editor.WriteMessage("\nCommand cancelled."); return; }
+
+            // --- Dialog ---
+            var dialog = new ProfilePlotDialog(profileDrawings, suggestedLength);
+            if (Application.ShowModalWindow(dialog) != true || dialog.SelectedDrawing == null)
+            { editor.WriteMessage("\nCommand cancelled."); return; }
+
+            var profileDwg = dialog.SelectedDrawing;
+            double length  = dialog.Length;
+            string plotName = dialog.PlotName;
+
+            if (!File.Exists(profileDwg.FilePath))
+            { editor.WriteMessage($"\nProfile file not found: {profileDwg.FilePath}"); return; }
+
+            // --- Output path ---
+            string outputDir  = Path.Combine(
+                DatabaseService.CurrentProject.Directory, "03 Fabrication", "Profile Plots");
+            string outputPath = Path.Combine(outputDir,
+                plotName.Replace(" ", "_").Replace("/", "-") + ".dwg");
+
+            if (File.Exists(outputPath))
+            {
+                editor.WriteMessage($"\nOverwriting existing file: {outputPath}");
+            }
+
+            // --- Generate ---
+            try
+            {
+                editor.WriteMessage($"\nGenerating profile plot for '{profileDwg.Name}' …");
+                ProfilePlotService.CreatePlot(profileDwg.FilePath, length, outputPath, plotName);
+                editor.WriteMessage($"\nProfile plot saved: {outputPath}");
+
+                // Open the result
+                Application.DocumentManager.Open(outputPath, false);
+            }
+            catch (System.Exception ex)
+            {
+                editor.WriteMessage($"\nError generating plot: {ex.Message}");
+            }
+        }
     }
 }
