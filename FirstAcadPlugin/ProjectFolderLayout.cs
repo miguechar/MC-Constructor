@@ -22,6 +22,8 @@ namespace FirstAcadPlugin
         public const string ModelsElectrical= @"02 Models\Electrical";
         public const string ModelsHVAC      = @"02 Models\HVAC";
         public const string Sheets          = @"03 Sheets";
+        public const string Fabrication     = @"03 Fabrication";
+        public const string ProfilePlots    = @"03 Fabrication\Profile Plots";
         public const string Output          = @"04 Output";
 
         /// <summary>
@@ -43,6 +45,8 @@ namespace FirstAcadPlugin
             ModelsElectrical,
             ModelsHVAC,
             Sheets,
+            Fabrication,
+            ProfilePlots,
             Output,
         };
 

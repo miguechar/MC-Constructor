@@ -41,6 +41,8 @@ CREATE TABLE IF NOT EXISTS public.drawings (
         'Template',
         'Titleblock',
         'Sheet',
+        'Profile',
+        'ProfilePlot',
         'Other'
     )),
     CONSTRAINT chk_drawings_discipline CHECK (discipline IS NULL OR discipline IN (

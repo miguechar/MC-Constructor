@@ -49,11 +49,12 @@ namespace FirstAcadPlugin
         public const string Titleblock = "Titleblock";
         public const string Sheet = "Sheet";
         public const string Profile = "Profile";
+        public const string ProfilePlot = "ProfilePlot";
         public const string Other = "Other";
 
         public static readonly string[] All = {
             BlockLibrary, FunctionalDrawing, DetailDrawing,
-            Template, Titleblock, Sheet, Profile, Other
+            Template, Titleblock, Sheet, Profile, ProfilePlot, Other
         };
 
         /// <summary>True for types that need a discipline (i.e. functional drawings).</summary>
@@ -77,6 +78,7 @@ namespace FirstAcadPlugin
                 case DetailDrawing:     return @"02 Models\General";
                 case Sheet:             return @"03 Sheets";
                 case Profile:           return @"01 Standards\Profiles";
+                case ProfilePlot:       return @"03 Fabrication\Profile Plots";
                 case Other:             return @"00 Admin";
                 default:                return @"00 Admin";
             }
@@ -94,6 +96,7 @@ namespace FirstAcadPlugin
                 case Titleblock:        return "Titleblock";
                 case Sheet:             return "Sheet";
                 case Profile:           return "Profile (Cross-Section)";
+                case ProfilePlot:       return "Profile Plot";
                 case Other:             return "Other";
                 default:                return drawingType;
             }

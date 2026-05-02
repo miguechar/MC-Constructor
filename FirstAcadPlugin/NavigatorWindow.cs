@@ -275,6 +275,14 @@ namespace FirstAcadPlugin
                 .Where(d => d.DrawingType == DrawingTypes.Sheet)
                 .ToList());
 
+            AddGroup("Profile Drawings", existing
+                .Where(d => d.DrawingType == DrawingTypes.Profile)
+                .ToList());
+
+            AddGroup("Profile Plots", existing
+                .Where(d => d.DrawingType == DrawingTypes.ProfilePlot)
+                .ToList());
+
             AddGroup("Other", existing
                 .Where(d => d.DrawingType == DrawingTypes.Other)
                 .ToList());

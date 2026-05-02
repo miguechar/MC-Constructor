@@ -1426,7 +1426,12 @@ namespace FirstAcadPlugin
                         using (var tr = db.TransactionManager.StartTransaction())
                         {
                             foreach (var id in ids)
-                                (tr.GetObject(id, OpenMode.ForWrite) as Entity)?.TransformBy(xform);
+                            {
+                                var ent = tr.GetObject(id, OpenMode.ForWrite) as Entity;
+                                if (ent == null) continue;
+                                ent.TransformBy(xform);
+                                PartGeometryHelper.SetProfileXData(ent, profileDwg.Name, tr, db);
+                            }
                             tr.Commit();
                         }
                         ok++;
@@ -1463,7 +1468,12 @@ namespace FirstAcadPlugin
                     using (var tr = db.TransactionManager.StartTransaction())
                     {
                         foreach (var id in ids)
-                            (tr.GetObject(id, OpenMode.ForWrite) as Entity)?.TransformBy(xform);
+                        {
+                            var ent = tr.GetObject(id, OpenMode.ForWrite) as Entity;
+                            if (ent == null) continue;
+                            ent.TransformBy(xform);
+                            PartGeometryHelper.SetProfileXData(ent, profileDwg.Name, tr, db);
+                        }
                         tr.Commit();
                     }
 
@@ -1687,23 +1697,60 @@ namespace FirstAcadPlugin
             if (!File.Exists(profileDwg.FilePath))
             { editor.WriteMessage($"\nProfile file not found: {profileDwg.FilePath}"); return; }
 
-            // --- Output path ---
-            string outputDir  = Path.Combine(
+            // --- Output path (unique) ---
+            string outputDir = Path.Combine(
                 DatabaseService.CurrentProject.Directory, "03 Fabrication", "Profile Plots");
-            string outputPath = Path.Combine(outputDir,
-                plotName.Replace(" ", "_").Replace("/", "-") + ".dwg");
-
+            string baseName  = plotName.Replace(" ", "_").Replace("/", "-");
+            string outputPath = Path.Combine(outputDir, baseName + ".dwg");
             if (File.Exists(outputPath))
             {
-                editor.WriteMessage($"\nOverwriting existing file: {outputPath}");
+                int counter = 1;
+                while (File.Exists(Path.Combine(outputDir, $"{baseName}_{counter}.dwg")))
+                    counter++;
+                outputPath = Path.Combine(outputDir, $"{baseName}_{counter}.dwg");
+            }
+
+            // --- Find template ---
+            string templatePath = null;
+            if (!string.IsNullOrEmpty(DatabaseService.CurrentProject.Directory))
+            {
+                string candidate = Path.Combine(DatabaseService.CurrentProject.Directory,
+                    ProjectFolderLayout.Templates, "PROFILE_PLOTS_TEMPLATE.dwg");
+                if (File.Exists(candidate))
+                {
+                    templatePath = candidate;
+                    editor.WriteMessage("\nUsing PROFILE_PLOTS_TEMPLATE.dwg for styling.");
+                }
+                else
+                {
+                    editor.WriteMessage(
+                        "\nNo PROFILE_PLOTS_TEMPLATE.dwg found in Templates folder — creating blank plot.");
+                }
             }
 
             // --- Generate ---
             try
             {
                 editor.WriteMessage($"\nGenerating profile plot for '{profileDwg.Name}' …");
-                ProfilePlotService.CreatePlot(profileDwg.FilePath, length, outputPath, plotName);
+                ProfilePlotService.CreatePlot(profileDwg.FilePath, length, outputPath, plotName, templatePath);
                 editor.WriteMessage($"\nProfile plot saved: {outputPath}");
+
+                // Register in the database so the Navigator can find it.
+                try
+                {
+                    string plotDrawingName = Path.GetFileNameWithoutExtension(outputPath);
+                    DatabaseService.CreateDrawing(
+                        Guid.NewGuid(),
+                        plotDrawingName,
+                        DrawingTypes.ProfilePlot,
+                        discipline: null,
+                        filePath: outputPath,
+                        description: $"Profile plot: {profileDwg.Name}, L={length:F0} mm");
+                }
+                catch (System.Exception dbEx)
+                {
+                    editor.WriteMessage($"\nNote: plot saved but DB register failed: {dbEx.Message}");
+                }
 
                 // Open the result
                 Application.DocumentManager.Open(outputPath, false);

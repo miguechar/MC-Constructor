@@ -118,6 +118,7 @@ namespace FirstAcadPlugin
 
                 string partName = "";
                 string materialName = "";
+                string profileName = "";
                 string handle = entity.Handle.ToString();
 
                 var xdata = entity.GetXDataForApplication(Commands.AppName);
@@ -130,6 +131,7 @@ namespace FirstAcadPlugin
                         string val = values[i + 1].Value.ToString();
                         if (key == "PartName") partName = val;
                         else if (key == "MaterialName") materialName = val;
+                        else if (key == "ProfileName") profileName = val;
                     }
                 }
 
@@ -139,7 +141,7 @@ namespace FirstAcadPlugin
                 double height = extents.MaxPoint.Z - extents.MinPoint.Z;
                 string layer  = solid.Layer;
 
-                _control.ShowMetadata(partName, materialName, handle, objectId, layer, width, depth, height);
+                _control.ShowMetadata(partName, materialName, profileName, handle, objectId, layer, width, depth, height);
                 tr.Commit();
             }
         }
@@ -210,11 +212,11 @@ namespace FirstAcadPlugin
             _currentObjectId = ObjectId.Null;
         }
 
-        public void ShowMetadata(string partName, string materialName, string handle,
-            ObjectId objectId, string layer, double width, double depth, double height)
+        public void ShowMetadata(string partName, string materialName, string profileName,
+            string handle, ObjectId objectId, string layer, double width, double depth, double height)
         {
             _currentObjectId = objectId;
-            _propsSection.ShowProperties(partName, materialName, handle, layer, width, depth, height);
+            _propsSection.ShowProperties(partName, materialName, profileName, handle, layer, width, depth, height);
             _propsSection.OnApply = () => OnApplyClick();
         }
 
@@ -500,6 +502,7 @@ namespace FirstAcadPlugin
         private PropertyRow _depthRow;
         private PropertyRow _heightRow;
         private PropertyRow _materialRow;
+        private PropertyRow _profileRow;
         private PropertyRow _partNameRow;
         private Button _applyBtn;
 
@@ -554,6 +557,7 @@ namespace FirstAcadPlugin
 
             // Property rows (will be stacked top-to-bottom in reverse-add order)
             _partNameRow = new PropertyRow("Part Name", editable: true);
+            _profileRow  = new PropertyRow("Profile",   editable: false);
             _materialRow = new PropertyRow("Material",  editable: false, altRow: true);
 
             var sep = new Panel { Dock = DockStyle.Top, Height = 10, BackColor = MetadataPaletteControl.BgColor };
@@ -570,6 +574,7 @@ namespace FirstAcadPlugin
             // Add in reverse order (last added = topmost with Dock=Top stacking)
             _propertiesContent.Controls.Add(applyPanel);
             _propertiesContent.Controls.Add(_partNameRow);
+            _propertiesContent.Controls.Add(_profileRow);
             _propertiesContent.Controls.Add(_materialRow);
             _propertiesContent.Controls.Add(sep);
             _propertiesContent.Controls.Add(_heightRow);
@@ -607,8 +612,8 @@ namespace FirstAcadPlugin
             _propertiesContent.Visible = false;
         }
 
-        public void ShowProperties(string partName, string materialName, string handle,
-            string layer, double width, double depth, double height)
+        public void ShowProperties(string partName, string materialName, string profileName,
+            string handle, string layer, double width, double depth, double height)
         {
             _messageLabel.Visible = false;
             _propertiesContent.Visible = true;
@@ -619,6 +624,7 @@ namespace FirstAcadPlugin
             _depthRow.SetValue($"{depth:F2}");
             _heightRow.SetValue($"{height:F2}");
             _materialRow.SetValue(string.IsNullOrEmpty(materialName) ? "—" : materialName);
+            _profileRow.SetValue(string.IsNullOrEmpty(profileName) ? "—" : profileName);
             _partNameRow.SetValue(partName);
         }
 

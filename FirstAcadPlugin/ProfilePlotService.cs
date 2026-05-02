@@ -38,7 +38,7 @@ namespace FirstAcadPlugin
         const double TitleH = 55;
         const double SubH   = 38;
         const double LabelH = 42;
-        const double DimTxt = 38;
+        const double DimTxt = 25;
 
         // ─────────────────────────────────────────────────────────────────────
 
@@ -49,11 +49,18 @@ namespace FirstAcadPlugin
         /// <param name="length">True profile length in drawing units (mm).</param>
         /// <param name="outputPath">Where to save the generated plot .dwg.</param>
         /// <param name="profileName">Display name used in the title strip.</param>
+        /// <param name="templatePath">
+        /// Optional path to PROFILE_PLOTS_TEMPLATE.dwg.  When supplied the template is
+        /// copied to <paramref name="outputPath"/> before writing, so its linetypes,
+        /// layers and dim styles are preserved.  Dim-property overrides are skipped when
+        /// a template is used — style the dimensions in the template file instead.
+        /// </param>
         public static void CreatePlot(
             string profileDrawingPath,
             double length,
             string outputPath,
-            string profileName)
+            string profileName,
+            string templatePath = null)
         {
             if (length <= 0) throw new ArgumentException("Length must be > 0.");
 
@@ -128,21 +135,30 @@ namespace FirstAcadPlugin
                 string dir = Path.GetDirectoryName(outputPath);
                 if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
 
-                using (var db = new Database(true, true))
+                bool usingTemplate = !string.IsNullOrEmpty(templatePath) && File.Exists(templatePath);
+                if (usingTemplate)
+                    File.Copy(templatePath, outputPath, overwrite: true);
+
+                using (var db = usingTemplate
+                    ? OpenTemplateDb(outputPath)
+                    : new Database(true, true))
                 {
-                    // Read the database's own dim-style ObjectId before opening any transaction.
-                    // Passing ObjectId.Null to AlignedDimension makes AutoCAD resolve the style
-                    // from the ACTIVE document's database (not this side-db), which throws
-                    // eWrongDatabase. Using db.Dimstyle keeps everything inside this database.
+                    // Grab the dim-style ObjectId from this database BEFORE any transaction.
+                    // Never pass ObjectId.Null — AutoCAD resolves Null from the active document
+                    // and throws eWrongDatabase in a side-database context.
                     ObjectId dimStyleId = db.Dimstyle;
 
-                    // Dimension appearance — set on the database object before any transaction.
-                    db.Dimtxt = DimTxt;
-                    db.Dimasz = 28;
-                    db.Dimexo = 12;
-                    db.Dimexe = 20;
-                    db.Dimgap = 12;
-                    db.Dimdec = 0;
+                    // When no template is present, apply fallback dim appearance.
+                    // When a template IS present the user styles dimensions in the template itself.
+                    if (!usingTemplate)
+                    {
+                        db.Dimtxt = DimTxt;
+                        db.Dimasz = 25;
+                        db.Dimexo = 12;
+                        db.Dimexe = 20;
+                        db.Dimgap = 12;
+                        db.Dimdec = 0;
+                    }
 
                     using (var tr = db.TransactionManager.StartTransaction())
                     {
@@ -257,6 +273,15 @@ namespace FirstAcadPlugin
                     db.SaveAs(outputPath, DwgVersion.Current);
                 }
             }
+        }
+
+        // Opens an existing .dwg as a writable side-database.
+        private static Database OpenTemplateDb(string path)
+        {
+            var db = new Database(false, true);
+            db.ReadDwgFile(path, FileShare.ReadWrite, true, "");
+            db.CloseInput(true);
+            return db;
         }
 
         // ── Drawing helpers ───────────────────────────────────────────────────

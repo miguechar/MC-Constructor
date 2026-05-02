@@ -393,6 +393,9 @@ namespace FirstAcadPlugin
                 tr.AddNewlyCreatedDBObject(regApp, true);
             }
 
+            // Preserve ProfileName if previously stamped (e.g. by MCInsertProfile).
+            string profileName = GetProfileName(entity);
+
             var xdata = new ResultBuffer(
                 new TypedValue((int)DxfCode.ExtendedDataRegAppName, Commands.AppName),
                 new TypedValue((int)DxfCode.ExtendedDataAsciiString, "PartName"),
@@ -402,10 +405,72 @@ namespace FirstAcadPlugin
                 new TypedValue((int)DxfCode.ExtendedDataAsciiString, "ParentPartId"),
                 new TypedValue((int)DxfCode.ExtendedDataAsciiString, part.ParentPartId?.ToString() ?? ""),
                 new TypedValue((int)DxfCode.ExtendedDataAsciiString, "IsOriginal"),
-                new TypedValue((int)DxfCode.ExtendedDataAsciiString, part.IsOriginal.ToString())
+                new TypedValue((int)DxfCode.ExtendedDataAsciiString, part.IsOriginal.ToString()),
+                new TypedValue((int)DxfCode.ExtendedDataAsciiString, "ProfileName"),
+                new TypedValue((int)DxfCode.ExtendedDataAsciiString, profileName)
             );
 
             entity.XData = xdata;
+        }
+
+        public static string GetProfileName(Entity entity)
+        {
+            var xdata = entity.GetXDataForApplication(Commands.AppName);
+            if (xdata == null) return "";
+            var values = xdata.AsArray();
+            for (int i = 1; i + 1 < values.Length; i += 2)
+            {
+                if (values[i].Value.ToString() == "ProfileName")
+                    return values[i + 1].Value.ToString();
+            }
+            return "";
+        }
+
+        /// <summary>
+        /// Stamps (or updates) the "ProfileName" key in the entity's XData,
+        /// preserving any other existing key-value pairs under MC_CONSTRUCTOR.
+        /// </summary>
+        public static void SetProfileXData(Entity entity, string profileName, Transaction tr, Database db)
+        {
+            var regAppTable = tr.GetObject(db.RegAppTableId, OpenMode.ForWrite) as RegAppTable;
+            if (!regAppTable.Has(Commands.AppName))
+            {
+                var regApp = new RegAppTableRecord { Name = Commands.AppName };
+                regAppTable.Add(regApp);
+                tr.AddNewlyCreatedDBObject(regApp, true);
+            }
+
+            var vals = new List<TypedValue>();
+            vals.Add(new TypedValue((int)DxfCode.ExtendedDataRegAppName, Commands.AppName));
+
+            bool hasProfileKey = false;
+            var existing = entity.GetXDataForApplication(Commands.AppName);
+            if (existing != null)
+            {
+                var arr = existing.AsArray();
+                for (int i = 1; i + 1 < arr.Length; i += 2)
+                {
+                    if (arr[i].Value.ToString() == "ProfileName")
+                    {
+                        hasProfileKey = true;
+                        vals.Add(new TypedValue((int)DxfCode.ExtendedDataAsciiString, "ProfileName"));
+                        vals.Add(new TypedValue((int)DxfCode.ExtendedDataAsciiString, profileName));
+                    }
+                    else
+                    {
+                        vals.Add(arr[i]);
+                        vals.Add(arr[i + 1]);
+                    }
+                }
+            }
+
+            if (!hasProfileKey)
+            {
+                vals.Add(new TypedValue((int)DxfCode.ExtendedDataAsciiString, "ProfileName"));
+                vals.Add(new TypedValue((int)DxfCode.ExtendedDataAsciiString, profileName));
+            }
+
+            entity.XData = new ResultBuffer(vals.ToArray());
         }
 
         public static (string partName, Guid? partId, Guid? parentPartId, bool isOriginal) GetPartXData(Entity entity)
