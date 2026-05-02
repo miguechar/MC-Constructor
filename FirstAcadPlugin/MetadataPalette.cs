@@ -116,122 +116,106 @@ namespace FirstAcadPlugin
                     return;
                 }
 
-                var xdata = entity.GetXDataForApplication(Commands.AppName);
                 string partName = "";
+                string materialName = "";
                 string handle = entity.Handle.ToString();
 
+                var xdata = entity.GetXDataForApplication(Commands.AppName);
                 if (xdata != null)
                 {
                     var values = xdata.AsArray();
-                    for (int i = 1; i < values.Length - 1; i += 2)
+                    for (int i = 1; i + 1 < values.Length; i += 2)
                     {
-                        if (values[i].Value.ToString() == "PartName")
-                            partName = values[i + 1].Value.ToString();
+                        string key = values[i].Value.ToString();
+                        string val = values[i + 1].Value.ToString();
+                        if (key == "PartName") partName = val;
+                        else if (key == "MaterialName") materialName = val;
                     }
                 }
 
                 var extents = solid.GeometricExtents;
-                double width = extents.MaxPoint.X - extents.MinPoint.X;
-                double depth = extents.MaxPoint.Y - extents.MinPoint.Y;
+                double width  = extents.MaxPoint.X - extents.MinPoint.X;
+                double depth  = extents.MaxPoint.Y - extents.MinPoint.Y;
                 double height = extents.MaxPoint.Z - extents.MinPoint.Z;
-                string layer = solid.Layer;
+                string layer  = solid.Layer;
 
-                _control.ShowMetadata(partName, handle, objectId, layer, width, depth, height);
+                _control.ShowMetadata(partName, materialName, handle, objectId, layer, width, depth, height);
                 tr.Commit();
             }
         }
     }
 
-    /// <summary>
-    /// Custom palette control styled like AutoCAD's Properties palette.
-    /// Uses Dock=Top for responsive layout.
-    /// </summary>
     public class MetadataPaletteControl : UserControl
     {
-        // AutoCAD dark theme colors
-        public static readonly DrawingColor BgColor = DrawingColor.FromArgb(45, 45, 48);
-        public static readonly DrawingColor HeaderBgColor = DrawingColor.FromArgb(62, 62, 66);
-        public static readonly DrawingColor HeaderTextColor = DrawingColor.FromArgb(220, 220, 220);
-        public static readonly DrawingColor LabelColor = DrawingColor.FromArgb(180, 180, 180);
-        public static readonly DrawingColor ValueColor = DrawingColor.FromArgb(255, 255, 255);
-        public static readonly DrawingColor BorderColor = DrawingColor.FromArgb(67, 67, 70);
-        public static readonly DrawingColor InputBgColor = DrawingColor.FromArgb(37, 37, 38);
-        public static readonly DrawingColor RowAltColor = DrawingColor.FromArgb(50, 50, 53);
+        // AutoCAD dark theme colours
+        public static readonly DrawingColor BgColor        = DrawingColor.FromArgb(45,  45,  48);
+        public static readonly DrawingColor HeaderBgColor  = DrawingColor.FromArgb(62,  62,  66);
+        public static readonly DrawingColor HeaderTextColor= DrawingColor.FromArgb(220, 220, 220);
+        public static readonly DrawingColor LabelColor     = DrawingColor.FromArgb(180, 180, 180);
+        public static readonly DrawingColor ValueColor     = DrawingColor.FromArgb(255, 255, 255);
+        public static readonly DrawingColor BorderColor    = DrawingColor.FromArgb(67,  67,  70);
+        public static readonly DrawingColor InputBgColor   = DrawingColor.FromArgb(37,  37,  38);
+        public static readonly DrawingColor RowAltColor    = DrawingColor.FromArgb(50,  50,  53);
 
         private ObjectId _currentObjectId;
-
-        // Sections
-        private FlowLayoutPanel mainContainer;
-        private ProjectSection projectSection;
-        private PropertiesSection propsSection;
+        private Panel _mainContainer;
+        private ProjectSection _projectSection;
+        private PropertiesSection _propsSection;
 
         public MetadataPaletteControl()
         {
-            this.BackColor = BgColor;
-            this.Dock = DockStyle.Fill;
-            this.Padding = new Padding(0);
-            this.AutoScroll = true;
+            BackColor = BgColor;
+            Dock = DockStyle.Fill;
+            Padding = new Padding(0);
             BuildUI();
         }
 
         private void BuildUI()
         {
-            mainContainer = new FlowLayoutPanel
+            // Plain Panel with Dock=Fill so children get correct width immediately
+            // (FlowLayoutPanel ignores Dock on children and never propagates width,
+            // causing all text to be invisible at zero-width).
+            _mainContainer = new Panel
             {
-                Dock = DockStyle.Top,
+                Dock = DockStyle.Fill,
                 BackColor = BgColor,
-                FlowDirection = System.Windows.Forms.FlowDirection.TopDown,
-                WrapContents = false,
-                AutoSize = true,
-                AutoSizeMode = AutoSizeMode.GrowAndShrink,
+                AutoScroll = true,
                 Padding = new Padding(0),
-                Margin = new Padding(0)
             };
 
-            // Project section
-            projectSection = new ProjectSection();
-            mainContainer.Controls.Add(projectSection);
+            _projectSection = new ProjectSection();
+            _projectSection.Dock = DockStyle.Top;
 
-            // Properties section
-            propsSection = new PropertiesSection();
-            mainContainer.Controls.Add(propsSection);
+            _propsSection = new PropertiesSection();
+            _propsSection.Dock = DockStyle.Top;
 
-            this.Controls.Add(mainContainer);
+            // Last-added control docks to top first with Dock=Top stacking.
+            _mainContainer.Controls.Add(_propsSection);    // index 0 → docked last  → bottom
+            _mainContainer.Controls.Add(_projectSection);  // index 1 → docked first → top
 
-            // Make sections fill width
-            this.Resize += OnResize;
-            OnResize(null, null);
+            Controls.Add(_mainContainer);
         }
 
-        private void OnResize(object sender, EventArgs e)
-        {
-            int w = this.ClientSize.Width;
-            if (w < 100) w = 100;
-            if (mainContainer != null) mainContainer.Width = w;
-            if (projectSection != null) projectSection.Width = w;
-            if (propsSection != null) propsSection.Width = w;
-        }
-
-        public void UpdateProjectInfo() => projectSection?.UpdateProjectInfo();
+        public void UpdateProjectInfo() => _projectSection?.UpdateProjectInfo();
 
         public void ShowNoSelection()
         {
-            propsSection.ShowMessage("Select a 3D solid");
+            _propsSection?.ShowMessage("Select a 3D solid");
             _currentObjectId = ObjectId.Null;
         }
 
         public void ShowNotASolid(string typeName)
         {
-            propsSection.ShowMessage($"Selected: {typeName}\n(Only 3D solids supported)");
+            _propsSection?.ShowMessage($"Selected: {typeName}\n(Only 3D solids supported)");
             _currentObjectId = ObjectId.Null;
         }
 
-        public void ShowMetadata(string partName, string handle, ObjectId objectId,
-            string layer, double width, double depth, double height)
+        public void ShowMetadata(string partName, string materialName, string handle,
+            ObjectId objectId, string layer, double width, double depth, double height)
         {
             _currentObjectId = objectId;
-            propsSection.ShowProperties(partName, handle, layer, width, depth, height);
-            propsSection.OnApply = () => OnApplyClick();
+            _propsSection.ShowProperties(partName, materialName, handle, layer, width, depth, height);
+            _propsSection.OnApply = () => OnApplyClick();
         }
 
         private void OnApplyClick()
@@ -243,7 +227,7 @@ namespace FirstAcadPlugin
                 return;
             }
 
-            string name = propsSection.GetPartName().Trim();
+            string name = _propsSection.GetPartName().Trim();
             if (string.IsNullOrEmpty(name))
             {
                 MessageBox.Show("Enter a part name.", "Empty",
@@ -259,164 +243,174 @@ namespace FirstAcadPlugin
         }
     }
 
-    /// <summary>
-    /// A section header bar (like "Project" or "MC Part Properties").
-    /// </summary>
+    // ─────────────────────────────────────────────────────────────────────────
+    // Reusable section header bar
+    // ─────────────────────────────────────────────────────────────────────────
     public class SectionHeader : Panel
     {
         public SectionHeader(string title)
         {
-            this.Height = 24;
-            this.Dock = DockStyle.Top;
-            this.BackColor = MetadataPaletteControl.HeaderBgColor;
+            Height = 24;
+            Dock = DockStyle.Top;
+            BackColor = MetadataPaletteControl.HeaderBgColor;
 
-            var collapseLabel = new Label
+            Controls.Add(new Label
             {
                 Text = "▼",
                 Location = new DrawingPoint(6, 4),
                 Size = new DrawingSize(16, 16),
                 ForeColor = MetadataPaletteControl.HeaderTextColor,
                 Font = new DrawingFont("Segoe UI", 8),
-                BackColor = MetadataPaletteControl.HeaderBgColor
-            };
-            this.Controls.Add(collapseLabel);
+                BackColor = MetadataPaletteControl.HeaderBgColor,
+            });
 
-            var titleLabel = new Label
+            Controls.Add(new Label
             {
                 Text = title,
                 Location = new DrawingPoint(24, 4),
                 AutoSize = true,
                 ForeColor = MetadataPaletteControl.HeaderTextColor,
                 Font = new DrawingFont("Segoe UI", 9, DrawingFontStyle.Bold),
-                BackColor = MetadataPaletteControl.HeaderBgColor
-            };
-            this.Controls.Add(titleLabel);
+                BackColor = MetadataPaletteControl.HeaderBgColor,
+            });
         }
     }
 
-    /// <summary>
-    /// A property row with label on left and value on right.
-    /// </summary>
+    // ─────────────────────────────────────────────────────────────────────────
+    // A property row: fixed-width label on the left, value on the right.
+    // Uses a TableLayoutPanel internally so layout is unambiguous regardless
+    // of the WinForms docking-order assumptions.
+    // ─────────────────────────────────────────────────────────────────────────
     public class PropertyRow : Panel
     {
-        private Label valueLabel;
-        private TextBox valueTextBox;
-        private bool isEditable;
+        private Label _valueLabel;
+        private TextBox _valueTextBox;
+        private readonly bool _isEditable;
 
         public PropertyRow(string label, bool editable = false, bool altRow = false)
         {
-            this.Height = 22;
-            this.Dock = DockStyle.Top;
-            this.BackColor = altRow ? MetadataPaletteControl.RowAltColor : MetadataPaletteControl.BgColor;
+            Height = 24;
+            Dock = DockStyle.Top;
+            BackColor = altRow ? MetadataPaletteControl.RowAltColor : MetadataPaletteControl.BgColor;
+
+            var table = new TableLayoutPanel
+            {
+                Dock = DockStyle.Fill,
+                ColumnCount = 2,
+                RowCount = 1,
+                BackColor = BackColor,
+                Padding = new Padding(0),
+                Margin = new Padding(0),
+                CellBorderStyle = TableLayoutPanelCellBorderStyle.None,
+            };
+            table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 105));
+            table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+            table.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
             var labelCtrl = new Label
             {
                 Text = label,
-                Dock = DockStyle.Left,
-                Width = 100,
+                Dock = DockStyle.Fill,
                 ForeColor = MetadataPaletteControl.LabelColor,
                 Font = new DrawingFont("Segoe UI", 9),
-                BackColor = this.BackColor,
+                BackColor = BackColor,
                 TextAlign = System.Drawing.ContentAlignment.MiddleLeft,
-                Padding = new Padding(8, 0, 0, 0)
+                Padding = new Padding(8, 0, 0, 0),
             };
-            this.Controls.Add(labelCtrl);
+            table.Controls.Add(labelCtrl, 0, 0);
 
-            isEditable = editable;
+            _isEditable = editable;
             if (editable)
             {
-                valueTextBox = new TextBox
+                _valueTextBox = new TextBox
                 {
                     Dock = DockStyle.Fill,
                     BackColor = MetadataPaletteControl.InputBgColor,
                     ForeColor = MetadataPaletteControl.ValueColor,
                     BorderStyle = BorderStyle.FixedSingle,
                     Font = new DrawingFont("Segoe UI", 9),
-                    Margin = new Padding(0, 2, 4, 2)
                 };
-                this.Controls.Add(valueTextBox);
-                valueTextBox.BringToFront();
+                table.Controls.Add(_valueTextBox, 1, 0);
             }
             else
             {
-                valueLabel = new Label
+                _valueLabel = new Label
                 {
                     Dock = DockStyle.Fill,
                     ForeColor = MetadataPaletteControl.ValueColor,
                     Font = new DrawingFont("Segoe UI", 9),
-                    BackColor = this.BackColor,
+                    BackColor = BackColor,
                     TextAlign = System.Drawing.ContentAlignment.MiddleLeft,
-                    Padding = new Padding(4, 0, 4, 0)
+                    Padding = new Padding(4, 0, 4, 0),
                 };
-                this.Controls.Add(valueLabel);
-                valueLabel.BringToFront();
+                table.Controls.Add(_valueLabel, 1, 0);
             }
+
+            Controls.Add(table);
         }
 
         public void SetValue(string value)
         {
-            if (isEditable) valueTextBox.Text = value;
-            else valueLabel.Text = value;
+            if (_isEditable) _valueTextBox.Text = value;
+            else _valueLabel.Text = value;
         }
 
-        public string GetValue() => isEditable ? valueTextBox.Text : valueLabel.Text;
+        public string GetValue() => _isEditable ? _valueTextBox.Text : _valueLabel.Text;
     }
 
-    /// <summary>
-    /// Project section: shows current project name and action buttons.
-    /// </summary>
+    // ─────────────────────────────────────────────────────────────────────────
+    // Project section: shows active project name + quick-action buttons.
+    // ─────────────────────────────────────────────────────────────────────────
     public class ProjectSection : Panel
     {
-        private PropertyRow projectRow;
-        private Button openBtn;
-        private Button saveBtn;
-        private Panel buttonPanel;
+        private PropertyRow _projectRow;
+        private Button _openBtn;
+        private Button _saveBtn;
 
         public ProjectSection()
         {
-            this.AutoSize = true;
-            this.AutoSizeMode = AutoSizeMode.GrowAndShrink;
-            this.BackColor = MetadataPaletteControl.BgColor;
-            this.Padding = new Padding(0);
-            this.Margin = new Padding(0);
+            AutoSize = true;
+            AutoSizeMode = AutoSizeMode.GrowAndShrink;
+            BackColor = MetadataPaletteControl.BgColor;
+            Padding = new Padding(0);
+            Margin = new Padding(0);
             BuildUI();
         }
 
         private void BuildUI()
         {
-            // Button panel goes at bottom (Dock=Top is reverse order, last added is on top)
-            buttonPanel = new Panel
+            // Build from top to bottom: header → project row → button panel.
+            // With Dock=Top stacking, last-added = topmost, so we add in reverse.
+            var buttonPanel = new Panel
             {
                 Dock = DockStyle.Top,
                 Height = 36,
                 BackColor = MetadataPaletteControl.BgColor,
-                Padding = new Padding(8, 4, 8, 4)
+                Padding = new Padding(8, 4, 8, 4),
             };
 
-            openBtn = CreateButton("Open Project", 0, 4, 110);
-            openBtn.Click += OnOpenProject;
-            buttonPanel.Controls.Add(openBtn);
+            _openBtn = MakeButton("Open Project", 0, 4, 115);
+            _openBtn.Click += OnOpenProject;
+            buttonPanel.Controls.Add(_openBtn);
 
-            saveBtn = CreateButton("Save Parts", 116, 4, 95);
-            saveBtn.BackColor = DrawingColor.FromArgb(40, 120, 40);
-            saveBtn.Enabled = false;
-            saveBtn.Click += OnSaveAll;
-            buttonPanel.Controls.Add(saveBtn);
+            _saveBtn = MakeButton("Save Parts", 121, 4, 95);
+            _saveBtn.BackColor = DrawingColor.FromArgb(40, 120, 40);
+            _saveBtn.Enabled = false;
+            _saveBtn.Click += OnSaveAll;
+            buttonPanel.Controls.Add(_saveBtn);
 
-            // Project row (shows current project)
-            projectRow = new PropertyRow("Project", false);
-            projectRow.SetValue("None");
+            _projectRow = new PropertyRow("Project", false);
+            _projectRow.SetValue("None");
 
-            // Header
             var header = new SectionHeader("Project");
 
-            // Add in reverse order for Dock=Top stacking
-            this.Controls.Add(buttonPanel);
-            this.Controls.Add(projectRow);
-            this.Controls.Add(header);
+            // Reverse order: header last → topmost.
+            Controls.Add(buttonPanel);
+            Controls.Add(_projectRow);
+            Controls.Add(header);
         }
 
-        private Button CreateButton(string text, int x, int y, int width)
+        private Button MakeButton(string text, int x, int y, int width)
         {
             var btn = new Button
             {
@@ -427,7 +421,7 @@ namespace FirstAcadPlugin
                 BackColor = DrawingColor.FromArgb(70, 70, 75),
                 ForeColor = MetadataPaletteControl.ValueColor,
                 Font = new DrawingFont("Segoe UI", 8.5f),
-                Cursor = Cursors.Hand
+                Cursor = Cursors.Hand,
             };
             btn.FlatAppearance.BorderColor = MetadataPaletteControl.BorderColor;
             btn.FlatAppearance.BorderSize = 1;
@@ -439,13 +433,13 @@ namespace FirstAcadPlugin
         {
             if (DatabaseService.CurrentProject != null)
             {
-                projectRow.SetValue(DatabaseService.CurrentProject.Name);
-                saveBtn.Enabled = true;
+                _projectRow.SetValue(DatabaseService.CurrentProject.Name);
+                _saveBtn.Enabled = true;
             }
             else
             {
-                projectRow.SetValue("None");
-                saveBtn.Enabled = false;
+                _projectRow.SetValue("None");
+                _saveBtn.Enabled = false;
             }
         }
 
@@ -455,14 +449,12 @@ namespace FirstAcadPlugin
             {
                 var dialog = new ProjectDialog();
                 var result = AcadApp.ShowModalWindow(dialog);
-
                 if (result == true && dialog.SelectedProject != null)
                 {
                     DatabaseService.SetCurrentProject(dialog.SelectedProject);
                     UpdateProjectInfo();
-
-                    var doc = AcadApp.DocumentManager.MdiActiveDocument;
-                    doc?.Editor.WriteMessage($"\nProject opened: {dialog.SelectedProject.Name}");
+                    AcadApp.DocumentManager.MdiActiveDocument?
+                        .Editor.WriteMessage($"\nProject opened: {dialog.SelectedProject.Name}");
                 }
             }
             catch (System.Exception ex)
@@ -480,7 +472,6 @@ namespace FirstAcadPlugin
                     MessageBoxButtons.OK, MessageBoxIcon.Warning);
                 return;
             }
-
             try
             {
                 int count = PartPropertiesManager.SaveAllPartsToDatabase();
@@ -495,57 +486,56 @@ namespace FirstAcadPlugin
         }
     }
 
-    /// <summary>
-    /// MC Part Properties section: shows selected part details.
-    /// </summary>
+    // ─────────────────────────────────────────────────────────────────────────
+    // Properties section: shows metadata for the selected 3D solid.
+    // ─────────────────────────────────────────────────────────────────────────
     public class PropertiesSection : Panel
     {
-        private SectionHeader header;
-        private Label messageLabel;
-        private Panel propertiesContent;
-        private PropertyRow handleRow;
-        private PropertyRow layerRow;
-        private PropertyRow widthRow;
-        private PropertyRow depthRow;
-        private PropertyRow heightRow;
-        private PropertyRow partNameRow;
-        private Button applyBtn;
+        private Label _messageLabel;
+        private Panel _propertiesContent;
+        private PropertyRow _handleRow;
+        private PropertyRow _layerRow;
+        private PropertyRow _widthRow;
+        private PropertyRow _depthRow;
+        private PropertyRow _heightRow;
+        private PropertyRow _materialRow;
+        private PropertyRow _partNameRow;
+        private Button _applyBtn;
 
         public Action OnApply { get; set; }
 
         public PropertiesSection()
         {
-            this.AutoSize = true;
-            this.AutoSizeMode = AutoSizeMode.GrowAndShrink;
-            this.BackColor = MetadataPaletteControl.BgColor;
-            this.Padding = new Padding(0);
-            this.Margin = new Padding(0);
+            AutoSize = true;
+            AutoSizeMode = AutoSizeMode.GrowAndShrink;
+            BackColor = MetadataPaletteControl.BgColor;
+            Padding = new Padding(0);
+            Margin = new Padding(0);
             BuildUI();
         }
 
         private void BuildUI()
         {
-            // Build properties content panel (initially hidden)
-            propertiesContent = new Panel
+            // Properties content panel (hidden until a valid solid is selected)
+            _propertiesContent = new Panel
             {
                 Dock = DockStyle.Top,
                 AutoSize = true,
                 AutoSizeMode = AutoSizeMode.GrowAndShrink,
                 BackColor = MetadataPaletteControl.BgColor,
                 Padding = new Padding(0),
-                Visible = false
+                Visible = false,
             };
 
-            // Apply button panel
+            // Apply button row
             var applyPanel = new Panel
             {
                 Dock = DockStyle.Top,
                 Height = 36,
                 BackColor = MetadataPaletteControl.BgColor,
-                Padding = new Padding(8, 4, 8, 4)
+                Padding = new Padding(8, 4, 8, 4),
             };
-
-            applyBtn = new Button
+            _applyBtn = new Button
             {
                 Text = "Apply",
                 Location = new DrawingPoint(0, 4),
@@ -554,95 +544,83 @@ namespace FirstAcadPlugin
                 BackColor = DrawingColor.FromArgb(0, 122, 204),
                 ForeColor = MetadataPaletteControl.ValueColor,
                 Font = new DrawingFont("Segoe UI", 8.5f, DrawingFontStyle.Bold),
-                Cursor = Cursors.Hand
+                Cursor = Cursors.Hand,
             };
-            applyBtn.FlatAppearance.BorderSize = 0;
-            applyBtn.FlatAppearance.MouseOverBackColor = DrawingColor.FromArgb(0, 142, 224);
-            applyBtn.Click += (s, e) => OnApply?.Invoke();
-            applyPanel.Controls.Add(applyBtn);
+            _applyBtn.FlatAppearance.BorderSize = 0;
+            _applyBtn.FlatAppearance.MouseOverBackColor = DrawingColor.FromArgb(0, 142, 224);
+            _applyBtn.Click += (s, e) => OnApply?.Invoke();
+            applyPanel.Controls.Add(_applyBtn);
 
-            // Part Name (editable)
-            partNameRow = new PropertyRow("Part Name", true);
+            // Property rows (will be stacked top-to-bottom in reverse-add order)
+            _partNameRow = new PropertyRow("Part Name", editable: true);
+            _materialRow = new PropertyRow("Material",  editable: false, altRow: true);
 
-            // Separator
-            var sep = new Panel
-            {
-                Dock = DockStyle.Top,
-                Height = 6,
-                BackColor = MetadataPaletteControl.BgColor
-            };
+            var sep = new Panel { Dock = DockStyle.Top, Height = 6, BackColor = MetadataPaletteControl.BgColor };
 
-            // Dimensions
-            heightRow = new PropertyRow("Height (Z)", false, true);
-            depthRow = new PropertyRow("Depth (Y)", false);
-            widthRow = new PropertyRow("Width (X)", false, true);
+            _heightRow = new PropertyRow("Height Z (mm)", altRow: true);
+            _depthRow  = new PropertyRow("Depth  Y (mm)");
+            _widthRow  = new PropertyRow("Width  X (mm)", altRow: true);
 
-            // Separator
-            var sep2 = new Panel
-            {
-                Dock = DockStyle.Top,
-                Height = 6,
-                BackColor = MetadataPaletteControl.BgColor
-            };
+            var sep2 = new Panel { Dock = DockStyle.Top, Height = 6, BackColor = MetadataPaletteControl.BgColor };
 
-            // General
-            layerRow = new PropertyRow("Layer", false, true);
-            handleRow = new PropertyRow("Handle", false);
+            _layerRow  = new PropertyRow("Layer",  altRow: true);
+            _handleRow = new PropertyRow("Handle");
 
-            // Stack in reverse for Dock=Top (last added shows first)
-            propertiesContent.Controls.Add(applyPanel);
-            propertiesContent.Controls.Add(partNameRow);
-            propertiesContent.Controls.Add(sep);
-            propertiesContent.Controls.Add(heightRow);
-            propertiesContent.Controls.Add(depthRow);
-            propertiesContent.Controls.Add(widthRow);
-            propertiesContent.Controls.Add(sep2);
-            propertiesContent.Controls.Add(layerRow);
-            propertiesContent.Controls.Add(handleRow);
+            // Add in reverse order (last added = topmost with Dock=Top stacking)
+            _propertiesContent.Controls.Add(applyPanel);
+            _propertiesContent.Controls.Add(_partNameRow);
+            _propertiesContent.Controls.Add(_materialRow);
+            _propertiesContent.Controls.Add(sep);
+            _propertiesContent.Controls.Add(_heightRow);
+            _propertiesContent.Controls.Add(_depthRow);
+            _propertiesContent.Controls.Add(_widthRow);
+            _propertiesContent.Controls.Add(sep2);
+            _propertiesContent.Controls.Add(_layerRow);
+            _propertiesContent.Controls.Add(_handleRow);
 
-            // Message label (shown when no selection)
-            messageLabel = new Label
+            // Message label shown when nothing is selected
+            _messageLabel = new Label
             {
                 Text = "Select a 3D solid",
                 Dock = DockStyle.Top,
-                Height = 30,
+                Height = 32,
                 ForeColor = MetadataPaletteControl.LabelColor,
                 BackColor = MetadataPaletteControl.BgColor,
                 Font = new DrawingFont("Segoe UI", 9),
                 TextAlign = System.Drawing.ContentAlignment.MiddleLeft,
-                Padding = new Padding(12, 0, 0, 0)
+                Padding = new Padding(12, 0, 0, 0),
             };
 
-            // Header
-            header = new SectionHeader("MC Part Properties");
+            var header = new SectionHeader("MC Part Properties");
 
-            // Stack in reverse for Dock=Top
-            this.Controls.Add(propertiesContent);
-            this.Controls.Add(messageLabel);
-            this.Controls.Add(header);
+            // Reverse order: header last → topmost.
+            Controls.Add(_propertiesContent);
+            Controls.Add(_messageLabel);
+            Controls.Add(header);
         }
 
         public void ShowMessage(string message)
         {
-            messageLabel.Text = message;
-            messageLabel.Visible = true;
-            propertiesContent.Visible = false;
+            _messageLabel.Text = message;
+            _messageLabel.Visible = true;
+            _propertiesContent.Visible = false;
         }
 
-        public void ShowProperties(string partName, string handle, string layer,
-            double width, double depth, double height)
+        public void ShowProperties(string partName, string materialName, string handle,
+            string layer, double width, double depth, double height)
         {
-            messageLabel.Visible = false;
-            propertiesContent.Visible = true;
+            _messageLabel.Visible = false;
+            _propertiesContent.Visible = true;
 
-            handleRow.SetValue(handle);
-            layerRow.SetValue(layer);
-            widthRow.SetValue($"{width:F2}");
-            depthRow.SetValue($"{depth:F2}");
-            heightRow.SetValue($"{height:F2}");
-            partNameRow.SetValue(partName);
+            _handleRow.SetValue(handle);
+            _layerRow.SetValue(layer);
+            _widthRow.SetValue($"{width:F2}");
+            _depthRow.SetValue($"{depth:F2}");
+            _heightRow.SetValue($"{height:F2}");
+            _materialRow.SetValue(string.IsNullOrEmpty(materialName) ? "—" : materialName);
+            _partNameRow.SetValue(partName);
         }
 
-        public string GetPartName() => partNameRow.GetValue();
+        public string GetPartName() => _partNameRow.GetValue();
     }
 }

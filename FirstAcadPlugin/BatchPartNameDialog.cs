@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -5,241 +6,193 @@ using System.Windows.Media;
 namespace FirstAcadPlugin
 {
     /// <summary>
-    /// Popup for batch-naming parts. Asks for a prefix that gets followed
-    /// by a dash and a serial number, e.g. user enters
-    /// "A1LB1-00-D07" with start=100 and 2 selected parts -&gt;
-    /// "A1LB1-00-D07-100", "A1LB1-00-D07-101".
-    ///
-    /// The starting serial defaults to 100 because that's the workflow the
-    /// user described, but it's editable so they can resume a numbering
-    /// run that was already partially used.
+    /// Popup for batch-naming parts with an optional shared material assignment.
+    /// Each entity gets PartName = "{prefix}-{serial}" with auto-incrementing serial.
     /// </summary>
     public class BatchPartNameDialog : Window
     {
-        private TextBox prefixTextBox;
-        private TextBox startSerialTextBox;
-        private Label previewLabel;
-        private readonly int selectedCount;
+        private TextBox _prefixBox;
+        private TextBox _startSerialBox;
+        private Label _previewLabel;
+        private ComboBox _materialCombo;
+        private readonly int _selectedCount;
+        private readonly List<Material> _materials;
 
-        /// <summary>The prefix entered by the user. Trimmed of whitespace.</summary>
-        public string Prefix { get; private set; }
+        public string   Prefix          { get; private set; }
+        public int      StartingSerial  { get; private set; } = 100;
+        public Material SelectedMaterial { get; private set; }
 
-        /// <summary>First serial in the run. Subsequent parts increment by 1.</summary>
-        public int StartingSerial { get; private set; } = 100;
-
-        public BatchPartNameDialog(int selectedCount)
+        public BatchPartNameDialog(int selectedCount, List<Material> materials = null)
         {
-            this.selectedCount = selectedCount;
+            _selectedCount = selectedCount;
+            _materials     = materials ?? new List<Material>();
 
             Title = "Batch Add Part Names";
-            Width = 420;
-            Height = 290;
+            Width = 440;
+            Height = _materials.Count > 0 ? 360 : 300;
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
             ResizeMode = ResizeMode.NoResize;
             Background = new SolidColorBrush(Color.FromRgb(45, 45, 48));
 
-            var mainStack = new StackPanel { Margin = new Thickness(20) };
+            var stack = new StackPanel { Margin = new Thickness(20) };
 
-            // Header
-            mainStack.Children.Add(new Label
+            stack.Children.Add(new Label
             {
                 Content = "Batch Add Part Names",
-                FontSize = 16,
-                FontWeight = FontWeights.Bold,
+                FontSize = 16, FontWeight = FontWeights.Bold,
                 Foreground = Brushes.White,
-                Margin = new Thickness(0, 0, 0, 8)
+                Margin = new Thickness(0, 0, 0, 6),
             });
 
-            // Selection count
-            mainStack.Children.Add(new Label
+            stack.Children.Add(new Label
             {
                 Content = $"Selected objects: {selectedCount}",
                 Foreground = new SolidColorBrush(Color.FromRgb(0, 180, 80)),
-                Margin = new Thickness(0, 0, 0, 12)
+                Margin = new Thickness(0, 0, 0, 12),
             });
 
-            // Prefix input
-            mainStack.Children.Add(new Label
+            // Prefix
+            stack.Children.Add(FieldLabel("Prefix (e.g. A1LB1-00-D07):"));
+            _prefixBox = InputBox("");
+            _prefixBox.TextChanged += (s, e) => UpdatePreview();
+            stack.Children.Add(_prefixBox);
+
+            // Starting serial
+            stack.Children.Add(FieldLabel("Starting Serial:"));
+            _startSerialBox = InputBox("100");
+            _startSerialBox.TextChanged += (s, e) => UpdatePreview();
+            stack.Children.Add(_startSerialBox);
+
+            // Material
+            if (_materials.Count > 0)
             {
-                Content = "Prefix (e.g. A1LB1-00-D07):",
-                Foreground = new SolidColorBrush(Color.FromRgb(200, 200, 200)),
-                Padding = new Thickness(0, 0, 0, 4)
-            });
-            prefixTextBox = MakeTextBox("");
-            prefixTextBox.TextChanged += (s, e) => UpdatePreview();
-            mainStack.Children.Add(prefixTextBox);
+                stack.Children.Add(FieldLabel("Material (optional):"));
+                _materialCombo = new ComboBox
+                {
+                    Height = 28,
+                    Margin = new Thickness(0, 4, 0, 8),
+                    Background = new SolidColorBrush(Color.FromRgb(37, 37, 38)),
+                    Foreground = Brushes.White,
+                    BorderBrush = new SolidColorBrush(Color.FromRgb(67, 67, 70)),
+                };
+                _materialCombo.Items.Add(new ComboBoxItem { Content = "(none)", Tag = null });
+                foreach (var m in _materials)
+                    _materialCombo.Items.Add(new ComboBoxItem { Content = m.Name, Tag = m });
+                _materialCombo.SelectedIndex = 0;
+                stack.Children.Add(_materialCombo);
+            }
 
-            // Starting serial input
-            mainStack.Children.Add(new Label
-            {
-                Content = "Starting Serial:",
-                Foreground = new SolidColorBrush(Color.FromRgb(200, 200, 200)),
-                Padding = new Thickness(0, 8, 0, 4)
-            });
-            startSerialTextBox = MakeTextBox("100");
-            startSerialTextBox.TextChanged += (s, e) => UpdatePreview();
-            mainStack.Children.Add(startSerialTextBox);
-
-            // Live preview - tells the user exactly what names they'll get
-            // so there's no surprise with the serial padding / dash.
-            previewLabel = new Label
+            // Preview
+            _previewLabel = new Label
             {
                 Foreground = new SolidColorBrush(Color.FromRgb(150, 200, 255)),
                 FontStyle = FontStyles.Italic,
                 FontSize = 11,
-                Margin = new Thickness(0, 8, 0, 0)
+                Margin = new Thickness(0, 4, 0, 0),
             };
-            mainStack.Children.Add(previewLabel);
+            stack.Children.Add(_previewLabel);
 
             // Buttons
-            var buttonPanel = new StackPanel
+            var btnRow = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
                 HorizontalAlignment = HorizontalAlignment.Right,
-                Margin = new Thickness(0, 16, 0, 0)
+                Margin = new Thickness(0, 14, 0, 0),
             };
-
-            var okButton = new Button
+            var applyBtn = new Button
             {
-                Content = "Apply",
-                Width = 100,
-                Height = 30,
-                Margin = new Thickness(0, 0, 10, 0),
+                Content = "Apply", Width = 100, Height = 30,
+                Margin = new Thickness(0, 0, 8, 0),
                 Background = new SolidColorBrush(Color.FromRgb(0, 122, 204)),
-                Foreground = Brushes.White,
-                BorderThickness = new Thickness(0),
-                FontWeight = FontWeights.SemiBold,
-                IsDefault = true
+                Foreground = Brushes.White, BorderThickness = new Thickness(0),
+                FontWeight = FontWeights.SemiBold, IsDefault = true,
             };
-            okButton.Click += OkButton_Click;
-            buttonPanel.Children.Add(okButton);
+            applyBtn.Click += OnApply;
+            btnRow.Children.Add(applyBtn);
 
-            var cancelButton = new Button
+            var cancelBtn = new Button
             {
-                Content = "Cancel",
-                Width = 80,
-                Height = 30,
+                Content = "Cancel", Width = 80, Height = 30,
                 Background = new SolidColorBrush(Color.FromRgb(60, 60, 65)),
-                Foreground = Brushes.White,
-                BorderThickness = new Thickness(0),
-                IsCancel = true
+                Foreground = Brushes.White, BorderThickness = new Thickness(0),
+                IsCancel = true,
             };
-            cancelButton.Click += (s, e) => { DialogResult = false; Close(); };
-            buttonPanel.Children.Add(cancelButton);
+            cancelBtn.Click += (s, e) => { DialogResult = false; Close(); };
+            btnRow.Children.Add(cancelBtn);
+            stack.Children.Add(btnRow);
 
-            mainStack.Children.Add(buttonPanel);
-
-            Content = mainStack;
-            Loaded += (s, e) => { prefixTextBox.Focus(); UpdatePreview(); };
+            Content = stack;
+            Loaded += (s, e) => { _prefixBox.Focus(); UpdatePreview(); };
         }
 
-        private TextBox MakeTextBox(string defaultText)
+        private static Label FieldLabel(string text) => new Label
         {
-            return new TextBox
-            {
-                Text = defaultText,
-                Height = 28,
-                Padding = new Thickness(8, 4, 8, 4),
-                Background = new SolidColorBrush(Color.FromRgb(37, 37, 38)),
-                Foreground = Brushes.White,
-                BorderBrush = new SolidColorBrush(Color.FromRgb(67, 67, 70)),
-                BorderThickness = new Thickness(1),
-                FontSize = 14
-            };
-        }
+            Content = text,
+            Foreground = new SolidColorBrush(Color.FromRgb(200, 200, 200)),
+            Padding = new Thickness(0, 0, 0, 2),
+        };
 
-        /// <summary>
-        /// Show the first and last names that will be applied. Helps the
-        /// user catch typos in the prefix or a wrong starting serial before
-        /// they commit to renaming a big selection.
-        /// </summary>
+        private static TextBox InputBox(string text) => new TextBox
+        {
+            Text = text, Height = 28,
+            Margin = new Thickness(0, 0, 0, 10),
+            Padding = new Thickness(8, 4, 8, 4),
+            Background = new SolidColorBrush(Color.FromRgb(37, 37, 38)),
+            Foreground = Brushes.White,
+            BorderBrush = new SolidColorBrush(Color.FromRgb(67, 67, 70)),
+            BorderThickness = new Thickness(1),
+            FontSize = 13,
+        };
+
         private void UpdatePreview()
         {
-            if (previewLabel == null) return;
-
-            string prefix = prefixTextBox.Text?.Trim() ?? "";
-            if (!int.TryParse(startSerialTextBox.Text, out int start))
+            if (_previewLabel == null) return;
+            string prefix = _prefixBox.Text?.Trim() ?? "";
+            if (!int.TryParse(_startSerialBox.Text, out int start))
             {
-                previewLabel.Content = "Preview: (enter a valid starting serial)";
+                _previewLabel.Content = "Preview: (enter a valid starting serial)";
                 return;
             }
+            if (_selectedCount <= 0) { _previewLabel.Content = "Preview: (no parts selected)"; return; }
 
-            if (selectedCount <= 0)
-            {
-                previewLabel.Content = "Preview: (no parts selected)";
-                return;
-            }
-
-            string firstName = BuildName(prefix, start);
-            if (selectedCount == 1)
-            {
-                previewLabel.Content = $"Preview: {firstName}";
-            }
-            else
-            {
-                string lastName = BuildName(prefix, start + selectedCount - 1);
-                previewLabel.Content = $"Preview: {firstName}  ...  {lastName}";
-            }
+            string first = BuildName(prefix, start);
+            _previewLabel.Content = _selectedCount == 1
+                ? $"Preview: {first}"
+                : $"Preview: {first}  ...  {BuildName(prefix, start + _selectedCount - 1)}";
         }
 
-        /// <summary>
-        /// Compose a part name from a prefix and a serial. Mirrors the
-        /// logic the command will use, kept in one place so the dialog
-        /// preview is always accurate.
-        /// </summary>
         public static string BuildName(string prefix, int serial)
-        {
-            // No prefix -> just the serial. Avoids dangling dashes when the
-            // user clears the prefix field.
-            if (string.IsNullOrEmpty(prefix))
-                return serial.ToString();
-            return $"{prefix}-{serial}";
-        }
+            => string.IsNullOrEmpty(prefix) ? serial.ToString() : $"{prefix}-{serial}";
 
-        private void OkButton_Click(object sender, RoutedEventArgs e)
+        private void OnApply(object sender, RoutedEventArgs e)
         {
-            string prefix = prefixTextBox.Text?.Trim() ?? "";
+            string prefix = _prefixBox.Text?.Trim() ?? "";
 
-            if (!int.TryParse(startSerialTextBox.Text, out int start))
+            if (!int.TryParse(_startSerialBox.Text, out int start))
             {
-                MessageBox.Show(
-                    "Please enter a whole number for the starting serial.",
-                    "Invalid Serial",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Warning);
-                startSerialTextBox.Focus();
-                return;
+                MessageBox.Show("Please enter a whole number for the starting serial.",
+                    "Invalid Serial", MessageBoxButton.OK, MessageBoxImage.Warning);
+                _startSerialBox.Focus(); return;
             }
-
             if (start < 0)
             {
-                MessageBox.Show(
-                    "Starting serial must be zero or greater.",
-                    "Invalid Serial",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Warning);
-                startSerialTextBox.Focus();
-                return;
+                MessageBox.Show("Starting serial must be zero or greater.",
+                    "Invalid Serial", MessageBoxButton.OK, MessageBoxImage.Warning);
+                _startSerialBox.Focus(); return;
             }
-
-            // Empty prefix is allowed (you get pure-numeric names) but warn
-            // the user so they don't apply it accidentally.
             if (string.IsNullOrEmpty(prefix))
             {
-                var answer = MessageBox.Show(
-                    "No prefix entered - parts will be named with just the serial number (e.g. \"100\", \"101\").\n\nContinue?",
-                    "Empty Prefix",
-                    MessageBoxButton.OKCancel,
-                    MessageBoxImage.Question);
-                if (answer != MessageBoxResult.OK)
-                {
-                    prefixTextBox.Focus();
-                    return;
-                }
+                if (MessageBox.Show(
+                    "No prefix entered — parts will be named with just the serial number.\n\nContinue?",
+                    "Empty Prefix", MessageBoxButton.OKCancel, MessageBoxImage.Question)
+                    != MessageBoxResult.OK)
+                { _prefixBox.Focus(); return; }
             }
 
             Prefix = prefix;
             StartingSerial = start;
+            if (_materialCombo?.SelectedItem is ComboBoxItem item && item.Tag is Material mat)
+                SelectedMaterial = mat;
             DialogResult = true;
             Close();
         }

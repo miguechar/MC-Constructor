@@ -34,7 +34,8 @@ namespace FirstAcadPlugin
             var result = editor.GetEntity(options);
             if (result.Status != PromptStatus.OK) { editor.WriteMessage("\nCommand cancelled."); return; }
 
-            var dialog = new PartMetadataDialog();
+            var materials = TryGetMaterials(editor);
+            var dialog = new PartMetadataDialog(materials);
             if (Application.ShowModalWindow(dialog) != true || string.IsNullOrEmpty(dialog.PartName))
             { editor.WriteMessage("\nCommand cancelled."); return; }
 
@@ -44,18 +45,36 @@ namespace FirstAcadPlugin
                 if (entity == null) { editor.WriteMessage("\nError accessing object."); return; }
 
                 RegisterApp(db, tr);
-
-                var xdata = new ResultBuffer(
-                    new TypedValue((int)DxfCode.ExtendedDataRegAppName, AppName),
-                    new TypedValue((int)DxfCode.ExtendedDataAsciiString, "PartName"),
-                    new TypedValue((int)DxfCode.ExtendedDataAsciiString, dialog.PartName)
-                );
-
-                entity.XData = xdata;
+                entity.XData = BuildPartXData(dialog.PartName, dialog.SelectedMaterial);
                 tr.Commit();
 
-                editor.WriteMessage($"\nMetadata added: {dialog.PartName}");
+                string matInfo = dialog.SelectedMaterial != null ? $", material: {dialog.SelectedMaterial.Name}" : "";
+                editor.WriteMessage($"\nMetadata added: {dialog.PartName}{matInfo}");
             }
+        }
+
+        private static List<Material> TryGetMaterials(Editor editor)
+        {
+            try { return MaterialLibraryService.GetMaterials(); }
+            catch { return new List<Material>(); }
+        }
+
+        private static ResultBuffer BuildPartXData(string partName, Material material)
+        {
+            var items = new System.Collections.Generic.List<TypedValue>
+            {
+                new TypedValue((int)DxfCode.ExtendedDataRegAppName, AppName),
+                new TypedValue((int)DxfCode.ExtendedDataAsciiString, "PartName"),
+                new TypedValue((int)DxfCode.ExtendedDataAsciiString, partName ?? ""),
+            };
+            if (material != null)
+            {
+                items.Add(new TypedValue((int)DxfCode.ExtendedDataAsciiString, "MaterialId"));
+                items.Add(new TypedValue((int)DxfCode.ExtendedDataAsciiString, material.Id.ToString()));
+                items.Add(new TypedValue((int)DxfCode.ExtendedDataAsciiString, "MaterialName"));
+                items.Add(new TypedValue((int)DxfCode.ExtendedDataAsciiString, material.Name));
+            }
+            return new ResultBuffer(items.ToArray());
         }
 
         private void RegisterApp(Database db, Transaction tr)
@@ -114,8 +133,8 @@ namespace FirstAcadPlugin
 
             int count = selResult.Value.Count;
 
-            // Prompt for prefix + starting serial via WPF dialog.
-            var dialog = new BatchPartNameDialog(count);
+            var materials = TryGetMaterials(editor);
+            var dialog = new BatchPartNameDialog(count, materials);
             if (Application.ShowModalWindow(dialog) != true)
             {
                 editor.WriteMessage("\nCommand cancelled.");
@@ -124,6 +143,7 @@ namespace FirstAcadPlugin
 
             string prefix = dialog.Prefix ?? "";
             int serial = dialog.StartingSerial;
+            var batchMaterial = dialog.SelectedMaterial;
 
             // Apply names in a single transaction so a mid-sequence error
             // either commits the whole batch or rolls it back, never half.
@@ -144,15 +164,9 @@ namespace FirstAcadPlugin
 
                     string partName = BatchPartNameDialog.BuildName(prefix, serial);
 
-                    var xdata = new ResultBuffer(
-                        new TypedValue((int)DxfCode.ExtendedDataRegAppName, AppName),
-                        new TypedValue((int)DxfCode.ExtendedDataAsciiString, "PartName"),
-                        new TypedValue((int)DxfCode.ExtendedDataAsciiString, partName)
-                    );
-
                     try
                     {
-                        entity.XData = xdata;
+                        entity.XData = BuildPartXData(partName, batchMaterial);
                         if (firstApplied == null) firstApplied = partName;
                         lastApplied = partName;
                         updated++;
@@ -236,15 +250,15 @@ namespace FirstAcadPlugin
                 return;
             }
 
-            //try
-            //{
-            //    var window = new MaterialLibraryWindow();
-            //    Application.ShowModalWindow(window);
-            //}
-            //catch (System.Exception ex)
-            //{
-            //    editor?.WriteMessage($"\nMaterial Library error: {ex.Message}");
-            //}
+            try
+            {
+                var window = new MaterialLibraryWindow();
+                Application.ShowModalWindow(window);
+            }
+            catch (System.Exception ex)
+            {
+                editor?.WriteMessage($"\nMaterial Library error: {ex.Message}");
+            }
         }
 
         [CommandMethod("MCOpenProject")]

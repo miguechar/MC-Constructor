@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -8,812 +7,416 @@ using System.Windows.Media;
 namespace FirstAcadPlugin
 {
     /// <summary>
-    /// Project-scoped material library editor. Two tabs:
-    ///
-    ///   Materials  Lists materials with name + density. Selecting a
-    ///              material reveals its plate stock (code, dimensions,
-    ///              default flag) which can be added/edited/removed in
-    ///              place.
-    ///
-    ///   Profiles   Lists profiles for the project. Each profile
-    ///              references a material, an optional cross-section
-    ///              drawing (drawing_type='Profile' under
-    ///              01 Standards/Profiles), and an optional density
-    ///              override.
-    ///
-    /// Edits are committed immediately - no separate "Save" button -
-    /// because the workflow is "open, tweak, close" rather than building
-    /// up large transactional changes. The Refresh button reloads from the
-    /// database in case another instance modified the same project.
+    /// Material library editor. Shows all material_plates for the open project
+    /// as a flat grid: Material | Code | Thickness | Width | Height | Density.
+    /// Supports add/edit/delete via toolbar buttons.
     /// </summary>
     public class MaterialLibraryWindow : Window
     {
-        // Materials tab
-        private ListBox materialsList;
-        private TextBox materialNameBox;
-        private TextBox materialDensityBox;
-        private TextBox materialDescBox;
-        private DataGrid platesGrid;
-
-        // Profiles tab
-        private ListBox profilesList;
-        private TextBox profileNameBox;
-        private TextBox profileCodeBox;
-        private TextBox profileDescBox;
-        private ComboBox profileMaterialCombo;
-        private ComboBox profileDrawingCombo;
-        private TextBox profileDensityOverrideBox;
-
-        // Cached state shared across the two tabs.
-        private List<Material> materials = new List<Material>();
-        private List<Profile> profiles = new List<Profile>();
+        private DataGrid _grid;
 
         public MaterialLibraryWindow()
         {
-            Title = "Material Library";
-            Width = 880;
-            Height = 600;
+            Title = DatabaseService.CurrentProject != null
+                ? $"Material Library — {DatabaseService.CurrentProject.Name}"
+                : "Material Library";
+            Width  = 680;
+            Height = 480;
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
             ResizeMode = ResizeMode.CanResize;
-            MinWidth = 760;
-            MinHeight = 480;
+            Background = DarkBrush(45, 45, 48);
+            Content = BuildLayout();
+            Loaded += (s, e) => Refresh();
+        }
 
-            var root = new Grid { Margin = new Thickness(10) };
-            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Auto) });
+        // ─── Layout ───────────────────────────────────────────────────────────
+
+        private UIElement BuildLayout()
+        {
+            var root = new Grid();
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Auto) });
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
 
-            // Header with project name + refresh.
-            var header = new DockPanel();
-            header.Children.Add(new TextBlock
+            var toolbar = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(8, 8, 8, 4) };
+            toolbar.Children.Add(ToolBtn("Add Material",    OnAddMaterial));
+            toolbar.Children.Add(ToolBtn("Add Plate",       OnAddPlate));
+            toolbar.Children.Add(ToolBtn("Edit Selected",   OnEditSelected));
+            toolbar.Children.Add(ToolBtn("Delete Selected", OnDeleteSelected));
+            Grid.SetRow(toolbar, 0);
+            root.Children.Add(toolbar);
+
+            _grid = new DataGrid
             {
-                Text = DatabaseService.CurrentProject != null
-                    ? $"Project: {DatabaseService.CurrentProject.Name}"
-                    : "(no project open)",
-                FontSize = 13,
-                FontWeight = FontWeights.SemiBold,
-                VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 0, 0, 6)
-            });
-            var refreshBtn = new Button
-            {
-                Content = "Refresh",
-                Padding = new Thickness(12, 4, 12, 4),
-                HorizontalAlignment = HorizontalAlignment.Right
+                Margin = new Thickness(8, 4, 8, 4),
+                AutoGenerateColumns = false,
+                IsReadOnly = true,
+                SelectionMode = DataGridSelectionMode.Single,
+                SelectionUnit = DataGridSelectionUnit.FullRow,
+                CanUserAddRows = false,
+                CanUserDeleteRows = false,
+                Background = DarkBrush(37, 37, 38),
+                Foreground = Brushes.White,
+                RowBackground = DarkBrush(45, 45, 48),
+                AlternatingRowBackground = DarkBrush(50, 50, 53),
+                BorderBrush = DarkBrush(67, 67, 70),
+                BorderThickness = new Thickness(1),
+                GridLinesVisibility = DataGridGridLinesVisibility.Horizontal,
+                HorizontalGridLinesBrush = DarkBrush(67, 67, 70),
             };
-            refreshBtn.Click += (s, e) => ReloadAll();
-            DockPanel.SetDock(refreshBtn, Dock.Right);
-            header.Children.Add(refreshBtn);
-            Grid.SetRow(header, 0);
-            root.Children.Add(header);
 
-            // Tabs
-            var tabs = new TabControl();
-            tabs.Items.Add(BuildMaterialsTab());
-            tabs.Items.Add(BuildProfilesTab());
-            Grid.SetRow(tabs, 1);
-            root.Children.Add(tabs);
+            Col("Material",        "MaterialName",     new DataGridLength(1, DataGridLengthUnitType.Star));
+            Col("Code",            "Code",             70);
+            Col("Thickness (mm)",  "ThicknessDisplay", 115);
+            Col("Width (mm)",      "WidthDisplay",     90);
+            Col("Height (mm)",     "HeightDisplay",    90);
+            Col("Density (kg/m³)", "DensityDisplay",   115);
 
-            // Footer close button
+            Grid.SetRow(_grid, 1);
+            root.Children.Add(_grid);
+
             var closeBtn = new Button
             {
-                Content = "Close",
-                Padding = new Thickness(20, 6, 20, 6),
+                Content = "Close", Width = 90, Height = 28,
+                Margin = new Thickness(0, 4, 8, 8),
                 HorizontalAlignment = HorizontalAlignment.Right,
-                Margin = new Thickness(0, 8, 0, 0),
-                IsCancel = true
+                Background = DarkBrush(60, 60, 65), Foreground = Brushes.White,
+                BorderThickness = new Thickness(0), IsCancel = true,
             };
             closeBtn.Click += (s, e) => Close();
             Grid.SetRow(closeBtn, 2);
             root.Children.Add(closeBtn);
 
-            Content = root;
-
-            // Block use when no project is open - the whole library is per-project.
-            if (DatabaseService.CurrentProject == null)
-            {
-                tabs.IsEnabled = false;
-                refreshBtn.IsEnabled = false;
-            }
-            else
-            {
-                Loaded += (s, e) => ReloadAll();
-            }
+            return root;
         }
 
-        // ====================================================================
-        // MATERIALS TAB
-        // ====================================================================
-
-        private TabItem BuildMaterialsTab()
+        private void Col(string header, string binding, DataGridLength width)
         {
-            var tab = new TabItem { Header = "Materials" };
-
-            var grid = new Grid { Margin = new Thickness(10) };
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(260) });
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-
-            // Left column: list + add/delete buttons
-            var leftStack = new DockPanel { Margin = new Thickness(0, 0, 8, 0) };
-
-            var leftButtons = new StackPanel
+            _grid.Columns.Add(new DataGridTextColumn
             {
-                Orientation = Orientation.Horizontal,
-                Margin = new Thickness(0, 0, 0, 4)
+                Header = header,
+                Binding = new System.Windows.Data.Binding(binding),
+                Width = width,
+            });
+        }
+        private void Col(string header, string binding, double pixelWidth)
+            => Col(header, binding, new DataGridLength(pixelWidth));
+
+        private static Button ToolBtn(string text, RoutedEventHandler click)
+        {
+            var b = new Button
+            {
+                Content = text, Height = 28,
+                Margin = new Thickness(0, 0, 6, 0), Padding = new Thickness(10, 0, 10, 0),
+                Background = DarkBrush(70, 70, 75), Foreground = Brushes.White,
+                BorderThickness = new Thickness(0), FontSize = 12,
             };
-            var addMatBtn = new Button { Content = "+ Add", Padding = new Thickness(10, 3, 10, 3), Margin = new Thickness(0, 0, 4, 0) };
-            addMatBtn.Click += (s, e) => OnAddMaterial();
-            leftButtons.Children.Add(addMatBtn);
-
-            var delMatBtn = new Button { Content = "Delete", Padding = new Thickness(10, 3, 10, 3) };
-            delMatBtn.Click += (s, e) => OnDeleteMaterial();
-            leftButtons.Children.Add(delMatBtn);
-
-            DockPanel.SetDock(leftButtons, Dock.Top);
-            leftStack.Children.Add(leftButtons);
-
-            materialsList = new ListBox { DisplayMemberPath = "Name" };
-            materialsList.SelectionChanged += (s, e) => OnMaterialSelectionChanged();
-            leftStack.Children.Add(materialsList);
-
-            Grid.SetColumn(leftStack, 0);
-            grid.Children.Add(leftStack);
-
-            // Right column: form for selected material + plates list
-            var rightStack = new DockPanel();
-
-            var formGrid = new Grid { Margin = new Thickness(0, 0, 0, 8) };
-            formGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(120) });
-            formGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            for (int i = 0; i < 4; i++)
-                formGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Auto) });
-
-            AddFormRow(formGrid, 0, "Name:",        materialNameBox    = NewTextBox());
-            AddFormRow(formGrid, 1, "Density (kg/m^3):", materialDensityBox = NewTextBox("7850"));
-            AddFormRow(formGrid, 2, "Description:", materialDescBox    = NewTextBox());
-
-            var saveMatRow = new StackPanel
-            {
-                Orientation = Orientation.Horizontal,
-                HorizontalAlignment = HorizontalAlignment.Right,
-                Margin = new Thickness(0, 6, 0, 0)
-            };
-            var saveMatBtn = new Button { Content = "Save Material", Padding = new Thickness(14, 4, 14, 4) };
-            saveMatBtn.Click += (s, e) => OnSaveMaterial();
-            saveMatRow.Children.Add(saveMatBtn);
-            Grid.SetRow(saveMatRow, 3);
-            Grid.SetColumnSpan(saveMatRow, 2);
-            formGrid.Children.Add(saveMatRow);
-
-            DockPanel.SetDock(formGrid, Dock.Top);
-            rightStack.Children.Add(formGrid);
-
-            // Plates section
-            var platesHeader = new DockPanel { Margin = new Thickness(0, 6, 0, 4) };
-            platesHeader.Children.Add(new TextBlock
-            {
-                Text = "Stock Plates",
-                FontWeight = FontWeights.SemiBold,
-                FontSize = 12,
-                VerticalAlignment = VerticalAlignment.Center
-            });
-            var platesButtons = new StackPanel
-            {
-                Orientation = Orientation.Horizontal,
-                HorizontalAlignment = HorizontalAlignment.Right
-            };
-            var addPlateBtn = new Button { Content = "+ Add Plate", Padding = new Thickness(10, 3, 10, 3), Margin = new Thickness(0, 0, 4, 0) };
-            addPlateBtn.Click += (s, e) => OnAddPlate();
-            platesButtons.Children.Add(addPlateBtn);
-            var delPlateBtn = new Button { Content = "Delete Plate", Padding = new Thickness(10, 3, 10, 3) };
-            delPlateBtn.Click += (s, e) => OnDeletePlate();
-            platesButtons.Children.Add(delPlateBtn);
-            DockPanel.SetDock(platesButtons, Dock.Right);
-            platesHeader.Children.Add(platesButtons);
-            DockPanel.SetDock(platesHeader, Dock.Top);
-            rightStack.Children.Add(platesHeader);
-
-            // DataGrid for plates - inline-editable so the user doesn't have
-            // to click into a sub-dialog for every change.
-            platesGrid = new DataGrid
-            {
-                AutoGenerateColumns = false,
-                CanUserAddRows = false,        // Add via "+ Add Plate" button
-                CanUserDeleteRows = false,
-                HeadersVisibility = DataGridHeadersVisibility.Column,
-                SelectionMode = DataGridSelectionMode.Single,
-                IsReadOnly = false,
-                RowHeight = 26
-            };
-            platesGrid.Columns.Add(new DataGridTextColumn
-            {
-                Header = "Code", Binding = new System.Windows.Data.Binding("Code"),
-                Width = new DataGridLength(70)
-            });
-            platesGrid.Columns.Add(new DataGridTextColumn
-            {
-                Header = "Width (mm)", Binding = new System.Windows.Data.Binding("Width"),
-                Width = new DataGridLength(100)
-            });
-            platesGrid.Columns.Add(new DataGridTextColumn
-            {
-                Header = "Height (mm)", Binding = new System.Windows.Data.Binding("Height"),
-                Width = new DataGridLength(100)
-            });
-            platesGrid.Columns.Add(new DataGridTextColumn
-            {
-                Header = "Thickness (mm)", Binding = new System.Windows.Data.Binding("Thickness"),
-                Width = new DataGridLength(110)
-            });
-            platesGrid.Columns.Add(new DataGridCheckBoxColumn
-            {
-                Header = "Default",
-                Binding = new System.Windows.Data.Binding("IsDefault"),
-                Width = new DataGridLength(70)
-            });
-            platesGrid.Columns.Add(new DataGridTextColumn
-            {
-                Header = "Description", Binding = new System.Windows.Data.Binding("Description"),
-                Width = new DataGridLength(1, DataGridLengthUnitType.Star)
-            });
-
-            // Persist edits as soon as the user leaves a cell. This keeps
-            // the data model and the UI in sync without an explicit save.
-            platesGrid.CellEditEnding += PlatesGrid_CellEditEnding;
-            rightStack.Children.Add(platesGrid);
-
-            Grid.SetColumn(rightStack, 1);
-            grid.Children.Add(rightStack);
-
-            tab.Content = grid;
-            return tab;
+            b.Click += click;
+            return b;
         }
 
-        private void OnMaterialSelectionChanged()
-        {
-            var m = materialsList.SelectedItem as Material;
-            if (m == null)
-            {
-                materialNameBox.Text = "";
-                materialDensityBox.Text = "7850";
-                materialDescBox.Text = "";
-                platesGrid.ItemsSource = null;
-                return;
-            }
-            materialNameBox.Text    = m.Name;
-            materialDensityBox.Text = m.Density.ToString("0.##");
-            materialDescBox.Text    = m.Description ?? "";
-            ReloadPlates(m);
-        }
+        // ─── Data ─────────────────────────────────────────────────────────────
 
-        private void ReloadPlates(Material m)
+        private void Refresh()
         {
             try
             {
-                var plates = MaterialLibraryService.GetPlates(m.Id);
-                // Bind to an ObservableCollection so DataGrid picks up adds/deletes.
-                platesGrid.ItemsSource = new System.Collections.ObjectModel.ObservableCollection<MaterialPlate>(plates);
+                var plates = MaterialLibraryService.GetPlatesForCurrentProject();
+                var rows = new List<PlateViewModel>();
+                foreach (var p in plates) rows.Add(new PlateViewModel(p));
+                _grid.ItemsSource = rows;
             }
             catch (System.Exception ex)
             {
-                MessageBox.Show($"Could not load plates: {ex.Message}",
-                    "Database Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show($"Error loading materials:\n{ex.Message}", "Error",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
-        private void OnAddMaterial()
+        private PlateViewModel Selected => _grid.SelectedItem as PlateViewModel;
+
+        // ─── Toolbar actions ──────────────────────────────────────────────────
+
+        private void OnAddMaterial(object sender, RoutedEventArgs e)
         {
-            var m = new Material { Name = "New Material", Density = 7850 };
-            try
+            var dlg = new AddEditMaterialDialog();
+            if (dlg.ShowDialog() != true) return;
+            Try(() => MaterialLibraryService.SaveMaterial(new Material
             {
-                MaterialLibraryService.SaveMaterial(m);
-                ReloadMaterials();
-                materialsList.SelectedItem = materials.FirstOrDefault(x => x.Id == m.Id);
-                materialNameBox.Focus();
-                materialNameBox.SelectAll();
-            }
-            catch (System.Exception ex)
-            {
-                MessageBox.Show($"Could not create material: {ex.Message}",
-                    "Database Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
-        }
-
-        private void OnDeleteMaterial()
-        {
-            var m = materialsList.SelectedItem as Material;
-            if (m == null) return;
-            if (MessageBox.Show(
-                    $"Delete material \"{m.Name}\"? This also removes its plates and unlinks any profiles using it.",
-                    "Delete Material",
-                    MessageBoxButton.OKCancel,
-                    MessageBoxImage.Warning) != MessageBoxResult.OK) return;
-
-            try
-            {
-                MaterialLibraryService.DeleteMaterial(m.Id);
-                ReloadMaterials();
-            }
-            catch (System.Exception ex)
-            {
-                MessageBox.Show($"Could not delete: {ex.Message}",
-                    "Database Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
-        }
-
-        private void OnSaveMaterial()
-        {
-            var m = materialsList.SelectedItem as Material;
-            if (m == null) return;
-
-            string name = materialNameBox.Text?.Trim() ?? "";
-            if (string.IsNullOrEmpty(name))
-            {
-                MessageBox.Show("Material name is required.", "Validation",
-                    MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
-            }
-            if (!double.TryParse(materialDensityBox.Text, out double density) || density <= 0)
-            {
-                MessageBox.Show("Density must be a positive number (kg/m^3).", "Validation",
-                    MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
-            }
-
-            m.Name = name;
-            m.Density = density;
-            m.Description = string.IsNullOrWhiteSpace(materialDescBox.Text) ? null : materialDescBox.Text.Trim();
-
-            try
-            {
-                MaterialLibraryService.SaveMaterial(m);
-                ReloadMaterials();
-                materialsList.SelectedItem = materials.FirstOrDefault(x => x.Id == m.Id);
-            }
-            catch (System.Exception ex)
-            {
-                MessageBox.Show($"Could not save: {ex.Message}",
-                    "Database Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
-        }
-
-        private void OnAddPlate()
-        {
-            var m = materialsList.SelectedItem as Material;
-            if (m == null)
-            {
-                MessageBox.Show("Select a material first.", "Add Plate",
-                    MessageBoxButton.OK, MessageBoxImage.Information);
-                return;
-            }
-
-            // Generate a unique-ish default code (T01, T02, ...) so the
-            // user can see the row land in the grid and just rename / edit
-            // dimensions inline.
-            var existing = MaterialLibraryService.GetPlates(m.Id);
-            int next = 1;
-            while (existing.Any(p => p.Code.Equals($"T{next:D2}", StringComparison.OrdinalIgnoreCase)))
-                next++;
-
-            var plate = new MaterialPlate
-            {
-                MaterialId = m.Id,
-                Code = $"T{next:D2}",
-                Width = 2438,    // 8 ft
-                Height = 1219,   // 4 ft
-                Thickness = 10,
-                IsDefault = existing.Count == 0   // first plate becomes default
-            };
-
-            try
-            {
-                MaterialLibraryService.SavePlate(plate);
-                ReloadPlates(m);
-            }
-            catch (System.Exception ex)
-            {
-                MessageBox.Show($"Could not add plate: {ex.Message}",
-                    "Database Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
-        }
-
-        private void OnDeletePlate()
-        {
-            var plate = platesGrid.SelectedItem as MaterialPlate;
-            var m = materialsList.SelectedItem as Material;
-            if (plate == null || m == null) return;
-
-            if (MessageBox.Show($"Delete plate \"{plate.Code}\"?",
-                    "Delete Plate",
-                    MessageBoxButton.OKCancel,
-                    MessageBoxImage.Warning) != MessageBoxResult.OK) return;
-
-            try
-            {
-                MaterialLibraryService.DeletePlate(plate.Id);
-                ReloadPlates(m);
-            }
-            catch (System.Exception ex)
-            {
-                MessageBox.Show($"Could not delete: {ex.Message}",
-                    "Database Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
-        }
-
-        private void PlatesGrid_CellEditEnding(object sender, DataGridCellEditEndingEventArgs e)
-        {
-            if (e.EditAction != DataGridEditAction.Commit) return;
-
-            // Defer the persist call until the binding has copied the new
-            // value back into the MaterialPlate instance, otherwise we'd
-            // be saving the pre-edit state.
-            Dispatcher.BeginInvoke(new Action(() =>
-            {
-                var plate = e.Row.Item as MaterialPlate;
-                if (plate == null) return;
-                try
-                {
-                    MaterialLibraryService.SavePlate(plate);
-                    // If user just toggled IsDefault on, refresh to reflect
-                    // the side-effect of clearing other defaults.
-                    var m = materialsList.SelectedItem as Material;
-                    if (m != null) ReloadPlates(m);
-                }
-                catch (System.Exception ex)
-                {
-                    MessageBox.Show($"Could not save plate: {ex.Message}",
-                        "Database Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                    var m = materialsList.SelectedItem as Material;
-                    if (m != null) ReloadPlates(m);   // revert UI to DB state
-                }
+                Id = Guid.Empty,
+                Name = dlg.MaterialName,
+                Density = dlg.Density,
+                Description = dlg.Description,
             }));
         }
 
-        // ====================================================================
-        // PROFILES TAB
-        // ====================================================================
-
-        private TabItem BuildProfilesTab()
+        private void OnAddPlate(object sender, RoutedEventArgs e)
         {
-            var tab = new TabItem { Header = "Profiles" };
-
-            var grid = new Grid { Margin = new Thickness(10) };
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(260) });
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-
-            // Left: list + add/delete
-            var leftStack = new DockPanel { Margin = new Thickness(0, 0, 8, 0) };
-
-            var leftButtons = new StackPanel
+            var mats = MaterialLibraryService.GetMaterials();
+            if (mats.Count == 0)
             {
-                Orientation = Orientation.Horizontal,
-                Margin = new Thickness(0, 0, 0, 4)
-            };
-            var addProfBtn = new Button { Content = "+ Add", Padding = new Thickness(10, 3, 10, 3), Margin = new Thickness(0, 0, 4, 0) };
-            addProfBtn.Click += (s, e) => OnAddProfile();
-            leftButtons.Children.Add(addProfBtn);
-
-            var delProfBtn = new Button { Content = "Delete", Padding = new Thickness(10, 3, 10, 3) };
-            delProfBtn.Click += (s, e) => OnDeleteProfile();
-            leftButtons.Children.Add(delProfBtn);
-            DockPanel.SetDock(leftButtons, Dock.Top);
-            leftStack.Children.Add(leftButtons);
-
-            profilesList = new ListBox { DisplayMemberPath = "Name" };
-            profilesList.SelectionChanged += (s, e) => OnProfileSelectionChanged();
-            leftStack.Children.Add(profilesList);
-
-            Grid.SetColumn(leftStack, 0);
-            grid.Children.Add(leftStack);
-
-            // Right: form
-            var formGrid = new Grid();
-            formGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(150) });
-            formGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-            for (int i = 0; i < 8; i++)
-                formGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Auto) });
-
-            AddFormRow(formGrid, 0, "Name:",            profileNameBox      = NewTextBox());
-            AddFormRow(formGrid, 1, "Code:",            profileCodeBox      = NewTextBox());
-            AddFormRow(formGrid, 2, "Description:",     profileDescBox      = NewTextBox());
-
-            profileMaterialCombo = new ComboBox
-            {
-                Margin = new Thickness(0, 0, 0, 6),
-                Padding = new Thickness(6, 3, 6, 3),
-                DisplayMemberPath = "Name"
-            };
-            AddFormRowControl(formGrid, 3, "Material:", profileMaterialCombo);
-
-            profileDrawingCombo = new ComboBox
-            {
-                Margin = new Thickness(0, 0, 0, 6),
-                Padding = new Thickness(6, 3, 6, 3),
-                DisplayMemberPath = "Name"
-            };
-            AddFormRowControl(formGrid, 4, "Cross-Section\nDrawing:", profileDrawingCombo);
-
-            AddFormRow(formGrid, 5, "Density override\n(kg/m^3, optional):",
-                profileDensityOverrideBox = NewTextBox());
-
-            // Hint about cross-section drawings.
-            var hint = new TextBlock
-            {
-                Text = "Cross-section drawings live under <project>/01 Standards/Profiles. " +
-                       "Create one with MCCreateDrawing using type 'Profile'.",
-                Foreground = Brushes.Gray,
-                TextWrapping = TextWrapping.Wrap,
-                FontSize = 11,
-                Margin = new Thickness(0, 4, 0, 8)
-            };
-            Grid.SetRow(hint, 6);
-            Grid.SetColumnSpan(hint, 2);
-            formGrid.Children.Add(hint);
-
-            var saveProfRow = new StackPanel
-            {
-                Orientation = Orientation.Horizontal,
-                HorizontalAlignment = HorizontalAlignment.Right,
-                Margin = new Thickness(0, 4, 0, 0)
-            };
-            var saveProfBtn = new Button { Content = "Save Profile", Padding = new Thickness(14, 4, 14, 4) };
-            saveProfBtn.Click += (s, e) => OnSaveProfile();
-            saveProfRow.Children.Add(saveProfBtn);
-            Grid.SetRow(saveProfRow, 7);
-            Grid.SetColumnSpan(saveProfRow, 2);
-            formGrid.Children.Add(saveProfRow);
-
-            Grid.SetColumn(formGrid, 1);
-            grid.Children.Add(formGrid);
-
-            tab.Content = grid;
-            return tab;
-        }
-
-        private void OnProfileSelectionChanged()
-        {
-            var p = profilesList.SelectedItem as Profile;
-            if (p == null)
-            {
-                profileNameBox.Text = "";
-                profileCodeBox.Text = "";
-                profileDescBox.Text = "";
-                profileMaterialCombo.SelectedIndex = -1;
-                profileDrawingCombo.SelectedIndex = -1;
-                profileDensityOverrideBox.Text = "";
+                MessageBox.Show("Add at least one material first.", "No Materials",
+                    MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
-            profileNameBox.Text             = p.Name;
-            profileCodeBox.Text             = p.Code ?? "";
-            profileDescBox.Text             = p.Description ?? "";
-            profileDensityOverrideBox.Text  = p.DensityOverride?.ToString("0.##") ?? "";
-
-            profileMaterialCombo.SelectedItem = materials.FirstOrDefault(m => m.Id == p.MaterialId);
-
-            // The drawings list contains only Drawing objects; find by Id.
-            foreach (var item in profileDrawingCombo.Items)
+            var dlg = new AddEditPlateDialog(mats);
+            if (dlg.ShowDialog() != true) return;
+            Try(() => MaterialLibraryService.SavePlate(new MaterialPlate
             {
-                if (item is Drawing d && p.DrawingId.HasValue && d.Id == p.DrawingId.Value)
-                {
-                    profileDrawingCombo.SelectedItem = item;
-                    return;
-                }
-            }
-            profileDrawingCombo.SelectedIndex = 0; // (none)
+                Id = Guid.Empty,
+                MaterialId = dlg.SelectedMaterialId,
+                Code = dlg.Code,
+                Width = dlg.PlateWidth, Height = dlg.PlateHeight,
+                Thickness = dlg.Thickness, IsDefault = dlg.IsDefault,
+            }));
         }
 
-        private void OnAddProfile()
+        private void OnEditSelected(object sender, RoutedEventArgs e)
         {
-            var p = new Profile { Name = "New Profile" };
-            try
+            var row = Selected;
+            if (row == null) { NoSelectionMsg(); return; }
+            var mats = MaterialLibraryService.GetMaterials();
+            var dlg = new AddEditPlateDialog(mats, row.Plate);
+            if (dlg.ShowDialog() != true) return;
+            Try(() => MaterialLibraryService.SavePlate(new MaterialPlate
             {
-                MaterialLibraryService.SaveProfile(p);
-                ReloadProfiles();
-                profilesList.SelectedItem = profiles.FirstOrDefault(x => x.Id == p.Id);
-                profileNameBox.Focus();
-                profileNameBox.SelectAll();
-            }
+                Id = row.PlateId,
+                MaterialId = dlg.SelectedMaterialId,
+                Code = dlg.Code,
+                Width = dlg.PlateWidth, Height = dlg.PlateHeight,
+                Thickness = dlg.Thickness, IsDefault = dlg.IsDefault,
+            }));
+        }
+
+        private void OnDeleteSelected(object sender, RoutedEventArgs e)
+        {
+            var row = Selected;
+            if (row == null) { NoSelectionMsg(); return; }
+            if (MessageBox.Show(
+                    $"Delete plate '{row.Code}' for material '{row.MaterialName}'?",
+                    "Confirm Delete", MessageBoxButton.YesNo, MessageBoxImage.Warning)
+                != MessageBoxResult.Yes) return;
+            Try(() => MaterialLibraryService.DeletePlate(row.PlateId));
+        }
+
+        private void Try(Action action)
+        {
+            try { action(); Refresh(); }
             catch (System.Exception ex)
             {
-                MessageBox.Show($"Could not create profile: {ex.Message}",
-                    "Database Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show($"Error:\n{ex.Message}", "Error",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
-        private void OnDeleteProfile()
+        private static void NoSelectionMsg() =>
+            MessageBox.Show("Select a row first.", "Nothing Selected",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+
+        // ─── Shared helpers ───────────────────────────────────────────────────
+
+        internal static SolidColorBrush DarkBrush(byte r, byte g, byte b)
+            => new SolidColorBrush(Color.FromRgb(r, g, b));
+
+        internal static TextBox MakeBox(string text) => new TextBox
         {
-            var p = profilesList.SelectedItem as Profile;
-            if (p == null) return;
-            if (MessageBox.Show($"Delete profile \"{p.Name}\"?",
-                    "Delete Profile",
-                    MessageBoxButton.OKCancel,
-                    MessageBoxImage.Warning) != MessageBoxResult.OK) return;
-            try
-            {
-                MaterialLibraryService.DeleteProfile(p.Id);
-                ReloadProfiles();
-            }
-            catch (System.Exception ex)
-            {
-                MessageBox.Show($"Could not delete: {ex.Message}",
-                    "Database Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
-        }
+            Text = text, Margin = new Thickness(0, 4, 0, 4),
+            Padding = new Thickness(6, 3, 6, 3),
+            Background = DarkBrush(37, 37, 38), Foreground = Brushes.White,
+            BorderBrush = DarkBrush(67, 67, 70), BorderThickness = new Thickness(1),
+        };
 
-        private void OnSaveProfile()
+        internal static void FormRow(Grid g, int row, string labelText, UIElement ctrl)
         {
-            var p = profilesList.SelectedItem as Profile;
-            if (p == null) return;
-
-            string name = profileNameBox.Text?.Trim() ?? "";
-            if (string.IsNullOrEmpty(name))
+            var lbl = new Label
             {
-                MessageBox.Show("Profile name is required.", "Validation",
-                    MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
-            }
-
-            double? densityOverride = null;
-            if (!string.IsNullOrWhiteSpace(profileDensityOverrideBox.Text))
-            {
-                if (!double.TryParse(profileDensityOverrideBox.Text, out double d) || d <= 0)
-                {
-                    MessageBox.Show("Density override must be a positive number, or empty to use the material's density.",
-                        "Validation", MessageBoxButton.OK, MessageBoxImage.Warning);
-                    return;
-                }
-                densityOverride = d;
-            }
-
-            p.Name             = name;
-            p.Code             = string.IsNullOrWhiteSpace(profileCodeBox.Text) ? null : profileCodeBox.Text.Trim();
-            p.Description      = string.IsNullOrWhiteSpace(profileDescBox.Text) ? null : profileDescBox.Text.Trim();
-            p.MaterialId       = (profileMaterialCombo.SelectedItem as Material)?.Id;
-            p.DrawingId        = (profileDrawingCombo.SelectedItem as Drawing)?.Id;
-            p.DensityOverride  = densityOverride;
-
-            try
-            {
-                MaterialLibraryService.SaveProfile(p);
-                ReloadProfiles();
-                profilesList.SelectedItem = profiles.FirstOrDefault(x => x.Id == p.Id);
-            }
-            catch (System.Exception ex)
-            {
-                MessageBox.Show($"Could not save profile: {ex.Message}",
-                    "Database Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
-        }
-
-        // ====================================================================
-        // RELOADERS
-        // ====================================================================
-
-        private void ReloadAll()
-        {
-            ReloadMaterials();
-            ReloadProfileDrawingCombo();
-            ReloadProfiles();
-        }
-
-        private void ReloadMaterials()
-        {
-            try
-            {
-                materials = MaterialLibraryService.GetMaterials();
-            }
-            catch (System.Exception ex)
-            {
-                MessageBox.Show($"Could not load materials: {ex.Message}",
-                    "Database Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                materials = new List<Material>();
-            }
-
-            var keepId = (materialsList?.SelectedItem as Material)?.Id;
-            materialsList.ItemsSource = materials;
-            if (keepId.HasValue)
-            {
-                materialsList.SelectedItem = materials.FirstOrDefault(m => m.Id == keepId.Value);
-            }
-            else if (materials.Count > 0)
-            {
-                materialsList.SelectedIndex = 0;
-            }
-
-            // Refresh the material combo on the profiles tab.
-            if (profileMaterialCombo != null)
-            {
-                var keepMatId = (profileMaterialCombo.SelectedItem as Material)?.Id;
-                profileMaterialCombo.ItemsSource = materials;
-                profileMaterialCombo.SelectedItem = materials.FirstOrDefault(m => m.Id == keepMatId);
-            }
-        }
-
-        private void ReloadProfileDrawingCombo()
-        {
-            try
-            {
-                var drawings = MaterialLibraryService.GetProfileDrawings();
-                profileDrawingCombo.Items.Clear();
-                profileDrawingCombo.Items.Add(new ComboPlaceholder()); // (none)
-                foreach (var d in drawings)
-                {
-                    profileDrawingCombo.Items.Add(d);
-                }
-                profileDrawingCombo.SelectedIndex = 0;
-            }
-            catch (System.Exception ex)
-            {
-                MessageBox.Show($"Could not load profile drawings: {ex.Message}",
-                    "Database Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
-        }
-
-        private void ReloadProfiles()
-        {
-            try
-            {
-                profiles = MaterialLibraryService.GetProfiles();
-            }
-            catch (System.Exception ex)
-            {
-                MessageBox.Show($"Could not load profiles: {ex.Message}",
-                    "Database Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                profiles = new List<Profile>();
-            }
-
-            var keepId = (profilesList?.SelectedItem as Profile)?.Id;
-            profilesList.ItemsSource = profiles;
-            if (keepId.HasValue)
-                profilesList.SelectedItem = profiles.FirstOrDefault(p => p.Id == keepId.Value);
-            else if (profiles.Count > 0)
-                profilesList.SelectedIndex = 0;
-        }
-
-        // ====================================================================
-        // SMALL HELPERS
-        // ====================================================================
-
-        private static TextBox NewTextBox(string defaultText = "")
-        {
-            return new TextBox
-            {
-                Text = defaultText,
-                Margin = new Thickness(0, 0, 0, 6),
-                Padding = new Thickness(6, 3, 6, 3),
-                FontSize = 12
-            };
-        }
-
-        private static void AddFormRow(Grid grid, int row, string label, FrameworkElement field)
-        {
-            var lbl = new TextBlock
-            {
-                Text = label,
+                Content = labelText, Margin = new Thickness(0, 4, 8, 4),
+                Foreground = new SolidColorBrush(Color.FromRgb(200, 200, 200)),
                 VerticalAlignment = VerticalAlignment.Center,
-                Margin = new Thickness(0, 0, 8, 6),
-                FontWeight = FontWeights.SemiBold
             };
-            Grid.SetRow(lbl, row);
-            Grid.SetColumn(lbl, 0);
-            grid.Children.Add(lbl);
-
-            Grid.SetRow(field, row);
-            Grid.SetColumn(field, 1);
-            grid.Children.Add(field);
+            Grid.SetRow(lbl, row); Grid.SetColumn(lbl, 0); g.Children.Add(lbl);
+            Grid.SetRow(ctrl, row); Grid.SetColumn(ctrl, 1); g.Children.Add(ctrl);
         }
 
-        private static void AddFormRowControl(Grid grid, int row, string label, FrameworkElement field)
-            => AddFormRow(grid, row, label, field);
-
-        /// <summary>
-        /// Rendered as "(none)" in the cross-section drawing combo so the
-        /// user can clear the link without having to delete the row.
-        /// </summary>
-        private class ComboPlaceholder
+        internal static Button DialogBtn(string text, bool isDefault, RoutedEventHandler click)
         {
-            public string Name => "(none)";
-            public override string ToString() => Name;
+            var b = new Button
+            {
+                Content = text, Width = 80, Height = 28, Margin = new Thickness(0, 0, 8, 0),
+                Background = isDefault ? DarkBrush(0, 122, 204) : DarkBrush(60, 60, 65),
+                Foreground = Brushes.White, BorderThickness = new Thickness(0),
+                IsDefault = isDefault, IsCancel = !isDefault,
+            };
+            b.Click += click;
+            return b;
         }
+
+        // ─── ViewModel ────────────────────────────────────────────────────────
+
+        public class PlateViewModel
+        {
+            public readonly MaterialPlate Plate;
+            public Guid   PlateId          => Plate.Id;
+            public string MaterialName     => Plate.MaterialName ?? "—";
+            public string Code             => Plate.Code;
+            public string ThicknessDisplay => $"{Plate.Thickness:0.##}";
+            public string WidthDisplay     => $"{Plate.Width:0.##}";
+            public string HeightDisplay    => $"{Plate.Height:0.##}";
+            public string DensityDisplay   => $"{Plate.MaterialDensity:0}";
+            public PlateViewModel(MaterialPlate plate) { Plate = plate; }
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Add / edit a material grade
+    // ─────────────────────────────────────────────────────────────────────────
+    public class AddEditMaterialDialog : Window
+    {
+        private readonly TextBox _nameBox;
+        private readonly TextBox _densityBox;
+        private readonly TextBox _descBox;
+
+        public string MaterialName { get; private set; }
+        public double Density      { get; private set; }
+        public string Description  { get; private set; }
+
+        public AddEditMaterialDialog(Material existing = null)
+        {
+            Title  = existing == null ? "Add Material" : "Edit Material";
+            Width  = 360; Height = 230;
+            WindowStartupLocation = WindowStartupLocation.CenterOwner;
+            ResizeMode = ResizeMode.NoResize;
+            Background = MaterialLibraryWindow.DarkBrush(45, 45, 48);
+
+            var g = new Grid { Margin = new Thickness(16) };
+            for (int i = 0; i < 4; i++) g.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            g.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(130) });
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+            MaterialLibraryWindow.FormRow(g, 0, "Name:",            _nameBox    = MaterialLibraryWindow.MakeBox(existing?.Name ?? ""));
+            MaterialLibraryWindow.FormRow(g, 1, "Density (kg/m³):", _densityBox = MaterialLibraryWindow.MakeBox(existing?.Density.ToString("0") ?? "7850"));
+            MaterialLibraryWindow.FormRow(g, 2, "Description:",     _descBox    = MaterialLibraryWindow.MakeBox(existing?.Description ?? ""));
+
+            var btns = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 12, 0, 0) };
+            Grid.SetRow(btns, 3); Grid.SetColumnSpan(btns, 2);
+            btns.Children.Add(MaterialLibraryWindow.DialogBtn("OK",     true,  OnOk));
+            btns.Children.Add(MaterialLibraryWindow.DialogBtn("Cancel", false, (s, e) => { DialogResult = false; Close(); }));
+            g.Children.Add(btns);
+
+            Content = g;
+            Loaded += (s, e) => _nameBox.Focus();
+        }
+
+        private void OnOk(object sender, RoutedEventArgs e)
+        {
+            if (string.IsNullOrWhiteSpace(_nameBox.Text))
+            { Warn("Material name is required."); _nameBox.Focus(); return; }
+            if (!double.TryParse(_densityBox.Text, out double d) || d <= 0)
+            { Warn("Enter a positive density (kg/m³)."); _densityBox.Focus(); return; }
+            MaterialName = _nameBox.Text.Trim();
+            Density      = d;
+            Description  = _descBox.Text.Trim();
+            DialogResult = true; Close();
+        }
+
+        private void Warn(string msg) =>
+            MessageBox.Show(msg, "Validation", MessageBoxButton.OK, MessageBoxImage.Warning);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Add / edit a plate (size entry for a material)
+    // ─────────────────────────────────────────────────────────────────────────
+    public class AddEditPlateDialog : Window
+    {
+        private readonly ComboBox _matCombo;
+        private readonly TextBox _codeBox;
+        private readonly TextBox _thicknessBox;
+        private readonly TextBox _widthBox;
+        private readonly TextBox _heightBox;
+        private readonly CheckBox _defaultChk;
+
+        public Guid   SelectedMaterialId { get; private set; }
+        public string Code        { get; private set; }
+        public double Thickness   { get; private set; }
+        public double PlateWidth  { get; private set; }
+        public double PlateHeight { get; private set; }
+        public bool   IsDefault   { get; private set; }
+
+        public AddEditPlateDialog(List<Material> materials, MaterialPlate existing = null)
+        {
+            Title  = existing == null ? "Add Plate" : "Edit Plate";
+            Width  = 360; Height = 320;
+            WindowStartupLocation = WindowStartupLocation.CenterOwner;
+            ResizeMode = ResizeMode.NoResize;
+            Background = MaterialLibraryWindow.DarkBrush(45, 45, 48);
+
+            var g = new Grid { Margin = new Thickness(16) };
+            for (int i = 0; i < 7; i++) g.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            g.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(130) });
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+            _matCombo = new ComboBox
+            {
+                Margin = new Thickness(0, 4, 0, 4),
+                Background = MaterialLibraryWindow.DarkBrush(37, 37, 38),
+                Foreground = Brushes.White,
+                BorderBrush = MaterialLibraryWindow.DarkBrush(67, 67, 70),
+            };
+            foreach (var m in materials)
+                _matCombo.Items.Add(new ComboBoxItem { Content = m.Name, Tag = m.Id });
+            if (existing != null)
+            {
+                for (int i = 0; i < _matCombo.Items.Count; i++)
+                    if (((ComboBoxItem)_matCombo.Items[i]).Tag is Guid gid && gid == existing.MaterialId)
+                    { _matCombo.SelectedIndex = i; break; }
+            }
+            else if (_matCombo.Items.Count > 0)
+                _matCombo.SelectedIndex = 0;
+
+            MaterialLibraryWindow.FormRow(g, 0, "Material:",          _matCombo);
+            MaterialLibraryWindow.FormRow(g, 1, "Code (e.g. T10):",   _codeBox      = MaterialLibraryWindow.MakeBox(existing?.Code ?? ""));
+            MaterialLibraryWindow.FormRow(g, 2, "Thickness (mm):",    _thicknessBox = MaterialLibraryWindow.MakeBox(existing?.Thickness.ToString("0.##") ?? ""));
+            MaterialLibraryWindow.FormRow(g, 3, "Width (mm):",        _widthBox     = MaterialLibraryWindow.MakeBox(existing?.Width.ToString("0.##") ?? ""));
+            MaterialLibraryWindow.FormRow(g, 4, "Height (mm):",       _heightBox    = MaterialLibraryWindow.MakeBox(existing?.Height.ToString("0.##") ?? ""));
+
+            _defaultChk = new CheckBox
+            {
+                Content = "Set as default plate for this material",
+                IsChecked = existing?.IsDefault ?? false,
+                Foreground = new SolidColorBrush(Color.FromRgb(200, 200, 200)),
+                Margin = new Thickness(0, 6, 0, 4),
+            };
+            Grid.SetRow(_defaultChk, 5); Grid.SetColumnSpan(_defaultChk, 2);
+            g.Children.Add(_defaultChk);
+
+            var btns = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 8, 0, 0) };
+            Grid.SetRow(btns, 6); Grid.SetColumnSpan(btns, 2);
+            btns.Children.Add(MaterialLibraryWindow.DialogBtn("OK",     true,  OnOk));
+            btns.Children.Add(MaterialLibraryWindow.DialogBtn("Cancel", false, (s, e) => { DialogResult = false; Close(); }));
+            g.Children.Add(btns);
+
+            Content = g;
+            Loaded += (s, e) => _codeBox.Focus();
+        }
+
+        private void OnOk(object sender, RoutedEventArgs e)
+        {
+            if (_matCombo.SelectedItem == null)           { Warn("Select a material."); return; }
+            if (string.IsNullOrWhiteSpace(_codeBox.Text)) { Warn("Code is required (e.g. T10)."); _codeBox.Focus(); return; }
+            if (!double.TryParse(_thicknessBox.Text, out double t) || t <= 0) { Warn("Enter a positive thickness (mm)."); _thicknessBox.Focus(); return; }
+            if (!double.TryParse(_widthBox.Text,     out double w) || w <= 0) { Warn("Enter a positive width (mm).");     _widthBox.Focus();     return; }
+            if (!double.TryParse(_heightBox.Text,    out double h) || h <= 0) { Warn("Enter a positive height (mm).");    _heightBox.Focus();    return; }
+
+            SelectedMaterialId = (Guid)((ComboBoxItem)_matCombo.SelectedItem).Tag;
+            Code        = _codeBox.Text.Trim();
+            Thickness   = t; PlateWidth = w; PlateHeight = h;
+            IsDefault   = _defaultChk.IsChecked == true;
+            DialogResult = true; Close();
+        }
+
+        private void Warn(string msg) =>
+            MessageBox.Show(msg, "Validation", MessageBoxButton.OK, MessageBoxImage.Warning);
     }
 }

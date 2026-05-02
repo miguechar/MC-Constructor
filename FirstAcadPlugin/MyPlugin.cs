@@ -126,6 +126,7 @@ namespace FirstAcadPlugin
             var toolsPanel = MakePanel("Tools");
             toolsPanel.Source.Items.Add(MakeButton("Part\nProperties",    "MCShowMetadataPalette", ColTools));
             toolsPanel.Source.Items.Add(MakeButton("Drawing\nProperties", "MCDrawingProperties",   ColTools));
+            toolsPanel.Source.Items.Add(MakeButton("Material\nLibrary",   "MCMaterialLibrary",     ColTools));
             toolsPanel.Source.Items.Add(MakeButton("Database\nConfig",    "MCConfigDatabase",      ColTools));
             tab.Panels.Add(toolsPanel.Panel);
         }

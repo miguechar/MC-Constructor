@@ -260,6 +260,9 @@ namespace FirstAcadPlugin
         public double? BBoxMaxY { get; set; }
         public double? BBoxMaxZ { get; set; }
 
+        // Material link (FK → public.materials.id)
+        public Guid? MaterialId { get; set; }
+
         // Metadata
         public DateTime CreatedAt { get; set; }
         public DateTime UpdatedAt { get; set; }
@@ -678,7 +681,8 @@ namespace FirstAcadPlugin
                         scale_x, scale_y, scale_z,
                         layer_name, color_index, material_name,
                         bbox_min_x, bbox_min_y, bbox_min_z,
-                        bbox_max_x, bbox_max_y, bbox_max_z
+                        bbox_max_x, bbox_max_y, bbox_max_z,
+                        material_id
                     ) VALUES (
                         @projectId, @partName, @partDesc,
                         @sourceDrawing, @sourceHandle,
@@ -689,7 +693,8 @@ namespace FirstAcadPlugin
                         @scaleX, @scaleY, @scaleZ,
                         @layerName, @colorIndex, @materialName,
                         @bboxMinX, @bboxMinY, @bboxMinZ,
-                        @bboxMaxX, @bboxMaxY, @bboxMaxZ
+                        @bboxMaxX, @bboxMaxY, @bboxMaxZ,
+                        @materialId
                     ) RETURNING id", conn))
                 {
                     AddPartParameters(cmd, part);
@@ -710,7 +715,7 @@ namespace FirstAcadPlugin
                     layer_name = @layerName, color_index = @colorIndex, material_name = @materialName,
                     bbox_min_x = @bboxMinX, bbox_min_y = @bboxMinY, bbox_min_z = @bboxMinZ,
                     bbox_max_x = @bboxMaxX, bbox_max_y = @bboxMaxY, bbox_max_z = @bboxMaxZ,
-                    is_override = @isOverride
+                    is_override = @isOverride, material_id = @materialId
                 WHERE id = @id RETURNING id", conn))
             {
                 cmd.Parameters.AddWithValue("id", id);
@@ -749,6 +754,7 @@ namespace FirstAcadPlugin
             cmd.Parameters.AddWithValue("bboxMaxX", (object)part.BBoxMaxX ?? DBNull.Value);
             cmd.Parameters.AddWithValue("bboxMaxY", (object)part.BBoxMaxY ?? DBNull.Value);
             cmd.Parameters.AddWithValue("bboxMaxZ", (object)part.BBoxMaxZ ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("materialId", (object)part.MaterialId ?? DBNull.Value);
         }
 
         /// <summary>
@@ -803,7 +809,7 @@ namespace FirstAcadPlugin
                         layer_name, color_index, material_name,
                         bbox_min_x, bbox_min_y, bbox_min_z,
                         bbox_max_x, bbox_max_y, bbox_max_z,
-                        created_at, updated_at, version
+                        created_at, updated_at, version, material_id
                     FROM public.drawing_parts {whereClause}", conn))
                 {
                     if (CurrentProject != null)
@@ -850,7 +856,8 @@ namespace FirstAcadPlugin
                                 BBoxMaxZ = r.IsDBNull(28) ? (double?)null : r.GetDouble(28),
                                 CreatedAt = r.GetDateTime(29),
                                 UpdatedAt = r.GetDateTime(30),
-                                Version = r.GetInt32(31)
+                                Version = r.GetInt32(31),
+                                MaterialId = r.IsDBNull(32) ? (Guid?)null : r.GetGuid(32)
                             });
                         }
                     }

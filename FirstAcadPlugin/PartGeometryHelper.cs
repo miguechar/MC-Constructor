@@ -63,6 +63,22 @@ namespace FirstAcadPlugin
                     ColorIndex = entity.ColorIndex,
                 };
 
+                // Pull MaterialId out of XData if present.
+                var xd = entity.GetXDataForApplication(Commands.AppName);
+                if (xd != null)
+                {
+                    var xv = xd.AsArray();
+                    for (int xi = 1; xi + 1 < xv.Length; xi += 2)
+                    {
+                        if (xv[xi].Value.ToString() == "MaterialId" &&
+                            Guid.TryParse(xv[xi + 1].Value.ToString(), out Guid matId))
+                        {
+                            part.MaterialId = matId;
+                            break;
+                        }
+                    }
+                }
+
                 // Bounding box - best-effort. A few entity types throw on
                 // GeometricExtents; we still want to record whatever we can.
                 try

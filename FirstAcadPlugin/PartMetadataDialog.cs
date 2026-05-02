@@ -1,104 +1,127 @@
+using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 
 namespace FirstAcadPlugin
 {
     /// <summary>
-    /// A popup dialog for entering part metadata.
-    /// This is a WPF Window created in code (no XAML needed).
+    /// Dialog for assigning a part name (and optional material) to a 3D solid.
     /// </summary>
     public class PartMetadataDialog : Window
     {
-        // Text box for the part name input
-        private TextBox partNameTextBox;
+        private TextBox _partNameBox;
+        private ComboBox _materialCombo;
+        private readonly List<Material> _materials;
 
-        // Property to get the entered part name after dialog closes
-        public string PartName { get; private set; }
+        public string   PartName         { get; private set; }
+        public Material SelectedMaterial { get; private set; }
 
-        public PartMetadataDialog()
+        public PartMetadataDialog(List<Material> materials = null)
         {
-            // Window settings
+            _materials = materials ?? new List<Material>();
+
             Title = "Add Part Metadata";
-            Width = 350;
-            Height = 180;
+            Width = 380;
+            Height = _materials.Count > 0 ? 220 : 175;
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
             ResizeMode = ResizeMode.NoResize;
+            Background = new SolidColorBrush(Color.FromRgb(45, 45, 48));
 
-            // Create the main container
-            var mainStack = new StackPanel
+            var stack = new StackPanel { Margin = new Thickness(16) };
+
+            // Header
+            stack.Children.Add(new Label
             {
-                Margin = new Thickness(15)
-            };
+                Content = "Add Part Metadata",
+                FontSize = 14,
+                FontWeight = FontWeights.Bold,
+                Foreground = Brushes.White,
+                Margin = new Thickness(0, 0, 0, 10),
+            });
 
-            // Part Name label
-            var partNameLabel = new Label
+            // Part Name
+            stack.Children.Add(new Label
             {
                 Content = "Part Name:",
-                FontWeight = FontWeights.Bold
-            };
-            mainStack.Children.Add(partNameLabel);
-
-            // Part Name text box
-            partNameTextBox = new TextBox
+                Foreground = new SolidColorBrush(Color.FromRgb(200, 200, 200)),
+                Padding = new Thickness(0),
+            });
+            _partNameBox = new TextBox
             {
-                Height = 25,
-                Margin = new Thickness(0, 5, 0, 15)
+                Height = 28,
+                Margin = new Thickness(0, 4, 0, 12),
+                Padding = new Thickness(6, 4, 6, 4),
+                Background = new SolidColorBrush(Color.FromRgb(37, 37, 38)),
+                Foreground = Brushes.White,
+                BorderBrush = new SolidColorBrush(Color.FromRgb(67, 67, 70)),
+                BorderThickness = new Thickness(1),
+                FontSize = 13,
             };
-            mainStack.Children.Add(partNameTextBox);
+            stack.Children.Add(_partNameBox);
 
-            // Buttons panel
-            var buttonPanel = new StackPanel
+            // Material selector (only when materials are available)
+            if (_materials.Count > 0)
+            {
+                stack.Children.Add(new Label
+                {
+                    Content = "Material (optional):",
+                    Foreground = new SolidColorBrush(Color.FromRgb(200, 200, 200)),
+                    Padding = new Thickness(0),
+                });
+                _materialCombo = new ComboBox
+                {
+                    Height = 28,
+                    Margin = new Thickness(0, 4, 0, 12),
+                    Background = new SolidColorBrush(Color.FromRgb(37, 37, 38)),
+                    Foreground = Brushes.White,
+                    BorderBrush = new SolidColorBrush(Color.FromRgb(67, 67, 70)),
+                };
+                _materialCombo.Items.Add(new ComboBoxItem { Content = "(none)", Tag = null });
+                foreach (var m in _materials)
+                    _materialCombo.Items.Add(new ComboBoxItem { Content = m.Name, Tag = m });
+                _materialCombo.SelectedIndex = 0;
+                stack.Children.Add(_materialCombo);
+            }
+
+            // Buttons
+            var btnRow = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
-                HorizontalAlignment = HorizontalAlignment.Right
+                HorizontalAlignment = HorizontalAlignment.Right,
             };
-
-            // OK button
-            var okButton = new Button
+            var okBtn = new Button
             {
-                Content = "OK",
-                Width = 75,
-                Height = 28,
-                Margin = new Thickness(0, 0, 10, 0),
-                IsDefault = true // Pressing Enter clicks this button
+                Content = "OK", Width = 80, Height = 28,
+                Margin = new Thickness(0, 0, 8, 0),
+                Background = new SolidColorBrush(Color.FromRgb(0, 122, 204)),
+                Foreground = Brushes.White, BorderThickness = new Thickness(0),
+                FontWeight = FontWeights.SemiBold, IsDefault = true,
             };
-            okButton.Click += OkButton_Click;
-            buttonPanel.Children.Add(okButton);
+            okBtn.Click += OnOk;
+            btnRow.Children.Add(okBtn);
 
-            // Cancel button
-            var cancelButton = new Button
+            var cancelBtn = new Button
             {
-                Content = "Cancel",
-                Width = 75,
-                Height = 28,
-                IsCancel = true // Pressing Escape clicks this button
+                Content = "Cancel", Width = 80, Height = 28,
+                Background = new SolidColorBrush(Color.FromRgb(60, 60, 65)),
+                Foreground = Brushes.White, BorderThickness = new Thickness(0),
+                IsCancel = true,
             };
-            cancelButton.Click += CancelButton_Click;
-            buttonPanel.Children.Add(cancelButton);
+            cancelBtn.Click += (s, e) => { DialogResult = false; Close(); };
+            btnRow.Children.Add(cancelBtn);
 
-            mainStack.Children.Add(buttonPanel);
-
-            // Set the window content
-            Content = mainStack;
-
-            // Focus on the text box when window opens
-            Loaded += (s, e) => partNameTextBox.Focus();
+            stack.Children.Add(btnRow);
+            Content = stack;
+            Loaded += (s, e) => _partNameBox.Focus();
         }
 
-        private void OkButton_Click(object sender, RoutedEventArgs e)
+        private void OnOk(object sender, RoutedEventArgs e)
         {
-            // Save the entered part name
-            PartName = partNameTextBox.Text.Trim();
-
-            // Set dialog result to true (indicates OK was clicked)
+            PartName = _partNameBox.Text.Trim();
+            if (_materialCombo != null && _materialCombo.SelectedItem is ComboBoxItem item && item.Tag is Material mat)
+                SelectedMaterial = mat;
             DialogResult = true;
-            Close();
-        }
-
-        private void CancelButton_Click(object sender, RoutedEventArgs e)
-        {
-            // Set dialog result to false (indicates Cancel was clicked)
-            DialogResult = false;
             Close();
         }
     }
