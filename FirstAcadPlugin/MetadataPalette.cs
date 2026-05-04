@@ -116,9 +116,10 @@ namespace FirstAcadPlugin
                     return;
                 }
 
-                string partName = "";
+                string partName    = "";
                 string materialName = "";
-                string profileName = "";
+                string profileName  = "";
+                string materialId   = "";
                 string handle = entity.Handle.ToString();
 
                 var xdata = entity.GetXDataForApplication(Commands.AppName);
@@ -129,9 +130,10 @@ namespace FirstAcadPlugin
                     {
                         string key = values[i].Value.ToString();
                         string val = values[i + 1].Value.ToString();
-                        if (key == "PartName") partName = val;
+                        if (key == "PartName")     partName     = val;
                         else if (key == "MaterialName") materialName = val;
-                        else if (key == "ProfileName") profileName = val;
+                        else if (key == "ProfileName")  profileName  = val;
+                        else if (key == "MaterialId")   materialId   = val;
                     }
                 }
 
@@ -141,8 +143,41 @@ namespace FirstAcadPlugin
                 double height = extents.MaxPoint.Z - extents.MinPoint.Z;
                 string layer  = solid.Layer;
 
-                _control.ShowMetadata(partName, materialName, profileName, handle, objectId, layer, width, depth, height);
+                string weightStr = ComputeWeight(materialId, width, depth, height);
+
+                _control.ShowMetadata(partName, materialName, profileName, weightStr, handle, objectId, layer, width, depth, height);
                 tr.Commit();
+            }
+        }
+
+        private static string ComputeWeight(string materialId, double width, double depth, double height)
+        {
+            if (string.IsNullOrEmpty(materialId) || DatabaseService.CurrentProject == null)
+                return "—";
+
+            try
+            {
+                Guid matGuid;
+                if (!Guid.TryParse(materialId, out matGuid)) return "—";
+
+                var materials = MaterialLibraryService.GetMaterials();
+                double density = 0;
+                foreach (var m in materials)
+                {
+                    if (m.Id == matGuid) { density = m.Density; break; }
+                }
+                if (density <= 0) return "—";
+
+                double volumeMm3 = width * depth * height;
+                double weightKg  = (density / 1e9) * volumeMm3;
+
+                if (weightKg < 0.001) return $"{weightKg * 1000:F1} g";
+                if (weightKg < 1000)  return $"{weightKg:F2} kg";
+                return $"{weightKg / 1000:F3} t";
+            }
+            catch
+            {
+                return "—";
             }
         }
     }
@@ -212,11 +247,11 @@ namespace FirstAcadPlugin
             _currentObjectId = ObjectId.Null;
         }
 
-        public void ShowMetadata(string partName, string materialName, string profileName,
+        public void ShowMetadata(string partName, string materialName, string profileName, string weightStr,
             string handle, ObjectId objectId, string layer, double width, double depth, double height)
         {
             _currentObjectId = objectId;
-            _propsSection.ShowProperties(partName, materialName, profileName, handle, layer, width, depth, height);
+            _propsSection.ShowProperties(partName, materialName, profileName, weightStr, handle, layer, width, depth, height);
             _propsSection.OnApply = () => OnApplyClick();
         }
 
@@ -291,7 +326,7 @@ namespace FirstAcadPlugin
 
         public PropertyRow(string label, bool editable = false, bool altRow = false)
         {
-            Height = 28;
+            Height = 34;
             Dock = DockStyle.Top;
             BackColor = altRow ? MetadataPaletteControl.RowAltColor : MetadataPaletteControl.BgColor;
 
@@ -305,7 +340,7 @@ namespace FirstAcadPlugin
                 Margin = new Padding(0),
                 CellBorderStyle = TableLayoutPanelCellBorderStyle.None,
             };
-            table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 90));
+            table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 115));
             table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
             table.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
@@ -503,6 +538,7 @@ namespace FirstAcadPlugin
         private PropertyRow _heightRow;
         private PropertyRow _materialRow;
         private PropertyRow _profileRow;
+        private PropertyRow _weightRow;
         private PropertyRow _partNameRow;
         private Button _applyBtn;
 
@@ -557,16 +593,17 @@ namespace FirstAcadPlugin
 
             // Property rows (will be stacked top-to-bottom in reverse-add order)
             _partNameRow = new PropertyRow("Part Name", editable: true);
+            _weightRow   = new PropertyRow("Weight",    editable: false, altRow: true);
             _profileRow  = new PropertyRow("Profile",   editable: false);
             _materialRow = new PropertyRow("Material",  editable: false, altRow: true);
 
-            var sep = new Panel { Dock = DockStyle.Top, Height = 10, BackColor = MetadataPaletteControl.BgColor };
+            var sep = new Panel { Dock = DockStyle.Top, Height = 14, BackColor = MetadataPaletteControl.BgColor };
 
             _heightRow = new PropertyRow("Height Z", altRow: true);
             _depthRow  = new PropertyRow("Depth Y");
             _widthRow  = new PropertyRow("Width X", altRow: true);
 
-            var sep2 = new Panel { Dock = DockStyle.Top, Height = 10, BackColor = MetadataPaletteControl.BgColor };
+            var sep2 = new Panel { Dock = DockStyle.Top, Height = 14, BackColor = MetadataPaletteControl.BgColor };
 
             _layerRow  = new PropertyRow("Layer",  altRow: true);
             _handleRow = new PropertyRow("Handle");
@@ -574,6 +611,7 @@ namespace FirstAcadPlugin
             // Add in reverse order (last added = topmost with Dock=Top stacking)
             _propertiesContent.Controls.Add(applyPanel);
             _propertiesContent.Controls.Add(_partNameRow);
+            _propertiesContent.Controls.Add(_weightRow);
             _propertiesContent.Controls.Add(_profileRow);
             _propertiesContent.Controls.Add(_materialRow);
             _propertiesContent.Controls.Add(sep);
@@ -612,7 +650,7 @@ namespace FirstAcadPlugin
             _propertiesContent.Visible = false;
         }
 
-        public void ShowProperties(string partName, string materialName, string profileName,
+        public void ShowProperties(string partName, string materialName, string profileName, string weightStr,
             string handle, string layer, double width, double depth, double height)
         {
             _messageLabel.Visible = false;
@@ -625,6 +663,7 @@ namespace FirstAcadPlugin
             _heightRow.SetValue($"{height:F2}");
             _materialRow.SetValue(string.IsNullOrEmpty(materialName) ? "—" : materialName);
             _profileRow.SetValue(string.IsNullOrEmpty(profileName) ? "—" : profileName);
+            _weightRow.SetValue(string.IsNullOrEmpty(weightStr) ? "—" : weightStr);
             _partNameRow.SetValue(partName);
         }
 

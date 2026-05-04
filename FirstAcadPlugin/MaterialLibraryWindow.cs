@@ -2,31 +2,43 @@ using System;
 using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Documents;
 using System.Windows.Media;
 
 namespace FirstAcadPlugin
 {
     /// <summary>
-    /// Material library editor. Shows all material_plates for the open project
-    /// as a flat grid: Material | Code | Thickness | Width | Height | Density.
-    /// Supports add/edit/delete via toolbar buttons.
+    /// Material library editor.
+    /// Top section: every material for the project (Name, Density, Description).
+    /// Bottom section: plate sizes for the selected material (Code, Thickness, Width, Height).
+    /// Selecting a material refreshes the plates grid automatically.
     /// </summary>
     public class MaterialLibraryWindow : Window
     {
-        private DataGrid _grid;
+        private DataGrid _materialsGrid;
+        private DataGrid _platesGrid;
+        private TextBlock _platesHeader;
+
+        // Per-section action buttons — enabled/disabled based on selection state.
+        private Button _editMatBtn;
+        private Button _deleteMatBtn;
+        private Button _addPlateBtn;
+        private Button _editPlateBtn;
+        private Button _deletePlateBtn;
 
         public MaterialLibraryWindow()
         {
             Title = DatabaseService.CurrentProject != null
                 ? $"Material Library — {DatabaseService.CurrentProject.Name}"
                 : "Material Library";
-            Width  = 680;
-            Height = 480;
+            Width  = 760;
+            Height = 580;
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
             ResizeMode = ResizeMode.CanResize;
             Background = DarkBrush(45, 45, 48);
             Content = BuildLayout();
-            Loaded += (s, e) => Refresh();
+            Loaded += (s, e) => RefreshMaterials();
         }
 
         // ─── Layout ───────────────────────────────────────────────────────────
@@ -34,21 +46,107 @@ namespace FirstAcadPlugin
         private UIElement BuildLayout()
         {
             var root = new Grid();
-            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(4) });          // splitter
+            root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });             // close
 
-            var toolbar = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(8, 8, 8, 4) };
-            toolbar.Children.Add(ToolBtn("Add Material",    OnAddMaterial));
-            toolbar.Children.Add(ToolBtn("Add Plate",       OnAddPlate));
-            toolbar.Children.Add(ToolBtn("Edit Selected",   OnEditSelected));
-            toolbar.Children.Add(ToolBtn("Delete Selected", OnDeleteSelected));
-            Grid.SetRow(toolbar, 0);
-            root.Children.Add(toolbar);
+            // ── Materials section ────────────────────────────────────────────
+            var matSection = new Grid();
+            matSection.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // header
+            matSection.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // toolbar
+            matSection.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); // grid
 
-            _grid = new DataGrid
+            var matLabel = SectionLabel("MATERIALS");
+            Grid.SetRow(matLabel, 0);
+            matSection.Children.Add(matLabel);
+
+            var matToolbar = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(8, 4, 8, 4) };
+            matToolbar.Children.Add(ToolBtn("Add Material", OnAddMaterial));
+            _editMatBtn   = ToolBtn("Edit",   OnEditMaterial);   _editMatBtn.IsEnabled   = false;
+            _deleteMatBtn = ToolBtn("Delete", OnDeleteMaterial); _deleteMatBtn.IsEnabled = false;
+            matToolbar.Children.Add(_editMatBtn);
+            matToolbar.Children.Add(_deleteMatBtn);
+            Grid.SetRow(matToolbar, 1);
+            matSection.Children.Add(matToolbar);
+
+            _materialsGrid = MakeGrid();
+            AddCol(_materialsGrid, "Name",             "Name",        new DataGridLength(1, DataGridLengthUnitType.Star));
+            AddCol(_materialsGrid, "Density (kg/m³)",  "DensityText", 120);
+            AddCol(_materialsGrid, "Description",      "Description", new DataGridLength(1, DataGridLengthUnitType.Star));
+            _materialsGrid.SelectionChanged += OnMaterialSelectionChanged;
+            Grid.SetRow(_materialsGrid, 2);
+            matSection.Children.Add(_materialsGrid);
+
+            Grid.SetRow(matSection, 0);
+            root.Children.Add(matSection);
+
+            // ── Splitter ────────────────────────────────────────────────────
+            var splitter = new GridSplitter
             {
-                Margin = new Thickness(8, 4, 8, 4),
+                Height = 4,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                VerticalAlignment   = VerticalAlignment.Stretch,
+                Background = DarkBrush(62, 62, 66),
+            };
+            Grid.SetRow(splitter, 1);
+            root.Children.Add(splitter);
+
+            // ── Plates section ──────────────────────────────────────────────
+            var plateSection = new Grid();
+            plateSection.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // header
+            plateSection.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // toolbar
+            plateSection.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); // grid
+
+            _platesHeader = SectionLabel("PLATES");
+            Grid.SetRow(_platesHeader, 0);
+            plateSection.Children.Add(_platesHeader);
+
+            var plateToolbar = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(8, 4, 8, 4) };
+            _addPlateBtn    = ToolBtn("Add Plate", OnAddPlate);      _addPlateBtn.IsEnabled    = false;
+            _editPlateBtn   = ToolBtn("Edit",      OnEditPlate);     _editPlateBtn.IsEnabled   = false;
+            _deletePlateBtn = ToolBtn("Delete",    OnDeletePlate);   _deletePlateBtn.IsEnabled = false;
+            plateToolbar.Children.Add(_addPlateBtn);
+            plateToolbar.Children.Add(_editPlateBtn);
+            plateToolbar.Children.Add(_deletePlateBtn);
+            Grid.SetRow(plateToolbar, 1);
+            plateSection.Children.Add(plateToolbar);
+
+            _platesGrid = MakeGrid();
+            AddCol(_platesGrid, "Code",           "Code",             90);
+            AddCol(_platesGrid, "Thickness (mm)",  "ThicknessDisplay", 115);
+            AddCol(_platesGrid, "Width (mm)",      "WidthDisplay",     100);
+            AddCol(_platesGrid, "Height (mm)",     "HeightDisplay",    100);
+            AddCol(_platesGrid, "Default",         "DefaultDisplay",   70);
+            _platesGrid.SelectionChanged += OnPlateSelectionChanged;
+            Grid.SetRow(_platesGrid, 2);
+            plateSection.Children.Add(_platesGrid);
+
+            Grid.SetRow(plateSection, 2);
+            root.Children.Add(plateSection);
+
+            // ── Close button ─────────────────────────────────────────────────
+            var closeBtn = new Button
+            {
+                Content = "Close", Width = 90, Height = 28,
+                Margin = new Thickness(0, 6, 8, 8),
+                HorizontalAlignment = HorizontalAlignment.Right,
+                Background = DarkBrush(60, 60, 65), Foreground = Brushes.White,
+                BorderThickness = new Thickness(0), IsCancel = true,
+            };
+            closeBtn.Click += (s, e) => Close();
+            Grid.SetRow(closeBtn, 3);
+            root.Children.Add(closeBtn);
+
+            return root;
+        }
+
+        // Build a styled DataGrid with dark header and dark rows.
+        private static DataGrid MakeGrid()
+        {
+            var grid = new DataGrid
+            {
+                Margin = new Thickness(8, 0, 8, 4),
                 AutoGenerateColumns = false,
                 IsReadOnly = true,
                 SelectionMode = DataGridSelectionMode.Single,
@@ -63,53 +161,92 @@ namespace FirstAcadPlugin
                 BorderThickness = new Thickness(1),
                 GridLinesVisibility = DataGridGridLinesVisibility.Horizontal,
                 HorizontalGridLinesBrush = DarkBrush(67, 67, 70),
+                RowHeaderWidth = 0,
             };
 
-            Col("Material",        "MaterialName",     new DataGridLength(1, DataGridLengthUnitType.Star));
-            Col("Code",            "Code",             70);
-            Col("Thickness (mm)",  "ThicknessDisplay", 115);
-            Col("Width (mm)",      "WidthDisplay",     90);
-            Col("Height (mm)",     "HeightDisplay",    90);
-            Col("Density (kg/m³)", "DensityDisplay",   115);
+            // Dark column-header style — must be set explicitly; WPF DataGrid
+            // ignores Background/Foreground on the grid itself for headers.
+            var headerStyle = new Style(typeof(DataGridColumnHeader));
+            headerStyle.Setters.Add(new Setter(Control.BackgroundProperty,      DarkBrush(55, 55, 60)));
+            headerStyle.Setters.Add(new Setter(Control.ForegroundProperty,      new SolidColorBrush(Color.FromRgb(200, 200, 200))));
+            headerStyle.Setters.Add(new Setter(Control.BorderBrushProperty,     DarkBrush(75, 75, 80)));
+            headerStyle.Setters.Add(new Setter(Control.BorderThicknessProperty, new Thickness(0, 0, 1, 1)));
+            headerStyle.Setters.Add(new Setter(Control.PaddingProperty,          new Thickness(8, 5, 8, 5)));
+            headerStyle.Setters.Add(new Setter(TextElement.FontWeightProperty,  FontWeights.SemiBold));
+            headerStyle.Setters.Add(new Setter(TextElement.FontSizeProperty,    11.0));
+            grid.ColumnHeaderStyle = headerStyle;
 
-            Grid.SetRow(_grid, 1);
-            root.Children.Add(_grid);
-
-            var closeBtn = new Button
+            // Dark cell style so selected rows stay legible.
+            var cellStyle = new Style(typeof(DataGridCell));
+            cellStyle.Setters.Add(new Setter(Control.BorderThicknessProperty, new Thickness(0)));
+            cellStyle.Setters.Add(new Setter(Control.ForegroundProperty, Brushes.White));
+            var selectedTrigger = new Trigger
             {
-                Content = "Close", Width = 90, Height = 28,
-                Margin = new Thickness(0, 4, 8, 8),
-                HorizontalAlignment = HorizontalAlignment.Right,
-                Background = DarkBrush(60, 60, 65), Foreground = Brushes.White,
-                BorderThickness = new Thickness(0), IsCancel = true,
+                Property = DataGridCell.IsSelectedProperty,
+                Value    = true,
             };
-            closeBtn.Click += (s, e) => Close();
-            Grid.SetRow(closeBtn, 2);
-            root.Children.Add(closeBtn);
+            selectedTrigger.Setters.Add(new Setter(Control.BackgroundProperty, DarkBrush(0, 102, 180)));
+            selectedTrigger.Setters.Add(new Setter(Control.ForegroundProperty, Brushes.White));
+            cellStyle.Triggers.Add(selectedTrigger);
+            grid.CellStyle = cellStyle;
 
-            return root;
+            // Row style — keep the dark alternating backgrounds when selected.
+            var rowStyle = new Style(typeof(DataGridRow));
+            rowStyle.Setters.Add(new Setter(Control.ForegroundProperty, Brushes.White));
+            var rowSelectedTrigger = new Trigger
+            {
+                Property = DataGridRow.IsSelectedProperty,
+                Value    = true,
+            };
+            rowSelectedTrigger.Setters.Add(new Setter(Control.BackgroundProperty, DarkBrush(0, 102, 180)));
+            rowSelectedTrigger.Setters.Add(new Setter(Control.ForegroundProperty, Brushes.White));
+            rowStyle.Triggers.Add(rowSelectedTrigger);
+            grid.RowStyle = rowStyle;
+
+            return grid;
         }
 
-        private void Col(string header, string binding, DataGridLength width)
+        private static void AddCol(DataGrid grid, string header, string binding, DataGridLength width)
         {
-            _grid.Columns.Add(new DataGridTextColumn
+            grid.Columns.Add(new DataGridTextColumn
             {
-                Header = header,
+                Header  = header,
                 Binding = new System.Windows.Data.Binding(binding),
-                Width = width,
+                Width   = width,
             });
         }
-        private void Col(string header, string binding, double pixelWidth)
-            => Col(header, binding, new DataGridLength(pixelWidth));
+        private static void AddCol(DataGrid grid, string header, string binding, double px)
+            => AddCol(grid, header, binding, new DataGridLength(px));
+
+        private static TextBlock SectionLabel(string text) => new TextBlock
+        {
+            Text       = text,
+            Foreground = new SolidColorBrush(Color.FromRgb(160, 160, 165)),
+            FontSize   = 10,
+            FontWeight = FontWeights.Bold,
+            Margin     = new Thickness(10, 8, 8, 2),
+        };
 
         private static Button ToolBtn(string text, RoutedEventHandler click)
         {
+            var style = new Style(typeof(Button));
+            style.Setters.Add(new Setter(Control.BackgroundProperty,      DarkBrush(70, 70, 75)));
+            style.Setters.Add(new Setter(Control.ForegroundProperty,      Brushes.White));
+            style.Setters.Add(new Setter(Control.BorderThicknessProperty, new Thickness(0)));
+
+            // Disabled state: dim the button to match the dark theme instead
+            // of letting WPF paint it white/grey.
+            var disabledTrigger = new Trigger { Property = UIElement.IsEnabledProperty, Value = false };
+            disabledTrigger.Setters.Add(new Setter(Control.BackgroundProperty, DarkBrush(52, 52, 55)));
+            disabledTrigger.Setters.Add(new Setter(Control.ForegroundProperty, DarkBrush(100, 100, 105)));
+            style.Triggers.Add(disabledTrigger);
+
             var b = new Button
             {
                 Content = text, Height = 28,
-                Margin = new Thickness(0, 0, 6, 0), Padding = new Thickness(10, 0, 10, 0),
-                Background = DarkBrush(70, 70, 75), Foreground = Brushes.White,
-                BorderThickness = new Thickness(0), FontSize = 12,
+                Margin = new Thickness(0, 0, 6, 0), Padding = new Thickness(12, 0, 12, 0),
+                FontSize = 12,
+                Style = style,
             };
             b.Click += click;
             return b;
@@ -117,14 +254,19 @@ namespace FirstAcadPlugin
 
         // ─── Data ─────────────────────────────────────────────────────────────
 
-        private void Refresh()
+        private void RefreshMaterials()
         {
             try
             {
-                var plates = MaterialLibraryService.GetPlatesForCurrentProject();
-                var rows = new List<PlateViewModel>();
-                foreach (var p in plates) rows.Add(new PlateViewModel(p));
-                _grid.ItemsSource = rows;
+                var mats = MaterialLibraryService.GetMaterials();
+                var rows = new List<MaterialViewModel>();
+                foreach (var m in mats) rows.Add(new MaterialViewModel(m));
+                _materialsGrid.ItemsSource = rows;
+
+                _editMatBtn.IsEnabled   = false;
+                _deleteMatBtn.IsEnabled = false;
+                _addPlateBtn.IsEnabled  = false;
+                RefreshPlates(null);
             }
             catch (System.Exception ex)
             {
@@ -133,7 +275,56 @@ namespace FirstAcadPlugin
             }
         }
 
-        private PlateViewModel Selected => _grid.SelectedItem as PlateViewModel;
+        private void RefreshPlates(Material mat)
+        {
+            if (mat == null)
+            {
+                _platesHeader.Text = "PLATES  —  select a material above";
+                _platesGrid.ItemsSource = null;
+                _addPlateBtn.IsEnabled  = false;
+                _editPlateBtn.IsEnabled = false;
+                _deletePlateBtn.IsEnabled = false;
+                return;
+            }
+
+            _platesHeader.Text = $"PLATES  —  {mat.Name}";
+            _addPlateBtn.IsEnabled = true;
+
+            try
+            {
+                var plates = MaterialLibraryService.GetPlates(mat.Id);
+                var rows = new List<PlateViewModel>();
+                foreach (var p in plates) rows.Add(new PlateViewModel(p));
+                _platesGrid.ItemsSource = rows;
+            }
+            catch (System.Exception ex)
+            {
+                MessageBox.Show($"Error loading plates:\n{ex.Message}", "Error",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private MaterialViewModel SelectedMaterialRow => _materialsGrid.SelectedItem as MaterialViewModel;
+        private PlateViewModel    SelectedPlateRow    => _platesGrid.SelectedItem    as PlateViewModel;
+
+        // ─── Selection handlers ───────────────────────────────────────────────
+
+        private void OnMaterialSelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            bool hasMat = SelectedMaterialRow != null;
+            _editMatBtn.IsEnabled   = hasMat;
+            _deleteMatBtn.IsEnabled = hasMat;
+            _editPlateBtn.IsEnabled   = false;
+            _deletePlateBtn.IsEnabled = false;
+            RefreshPlates(hasMat ? SelectedMaterialRow.Material : null);
+        }
+
+        private void OnPlateSelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            bool hasPlate = SelectedPlateRow != null;
+            _editPlateBtn.IsEnabled   = hasPlate;
+            _deletePlateBtn.IsEnabled = hasPlate;
+        }
 
         // ─── Toolbar actions ──────────────────────────────────────────────────
 
@@ -143,75 +334,100 @@ namespace FirstAcadPlugin
             if (dlg.ShowDialog() != true) return;
             Try(() => MaterialLibraryService.SaveMaterial(new Material
             {
-                Id = Guid.Empty,
-                Name = dlg.MaterialName,
-                Density = dlg.Density,
+                Id          = Guid.Empty,
+                Name        = dlg.MaterialName,
+                Density     = dlg.Density,
                 Description = dlg.Description,
-            }));
+            }), refreshMaterials: true);
+        }
+
+        private void OnEditMaterial(object sender, RoutedEventArgs e)
+        {
+            var row = SelectedMaterialRow;
+            if (row == null) return;
+            var dlg = new AddEditMaterialDialog(row.Material);
+            if (dlg.ShowDialog() != true) return;
+            Try(() => MaterialLibraryService.SaveMaterial(new Material
+            {
+                Id          = row.Material.Id,
+                Name        = dlg.MaterialName,
+                Density     = dlg.Density,
+                Description = dlg.Description,
+            }), refreshMaterials: true);
+        }
+
+        private void OnDeleteMaterial(object sender, RoutedEventArgs e)
+        {
+            var row = SelectedMaterialRow;
+            if (row == null) return;
+            if (MessageBox.Show(
+                    $"Delete material '{row.Name}' and ALL its plates?",
+                    "Confirm Delete", MessageBoxButton.YesNo, MessageBoxImage.Warning)
+                != MessageBoxResult.Yes) return;
+            Try(() => MaterialLibraryService.DeleteMaterial(row.Material.Id), refreshMaterials: true);
         }
 
         private void OnAddPlate(object sender, RoutedEventArgs e)
         {
-            var mats = MaterialLibraryService.GetMaterials();
-            if (mats.Count == 0)
-            {
-                MessageBox.Show("Add at least one material first.", "No Materials",
-                    MessageBoxButton.OK, MessageBoxImage.Information);
-                return;
-            }
-            var dlg = new AddEditPlateDialog(mats);
+            var mat = SelectedMaterialRow?.Material;
+            if (mat == null) return;
+            var dlg = new AddEditPlateDialog(new List<Material> { mat });
             if (dlg.ShowDialog() != true) return;
             Try(() => MaterialLibraryService.SavePlate(new MaterialPlate
             {
                 Id = Guid.Empty,
-                MaterialId = dlg.SelectedMaterialId,
+                MaterialId = mat.Id,
                 Code = dlg.Code,
                 Width = dlg.PlateWidth, Height = dlg.PlateHeight,
                 Thickness = dlg.Thickness, IsDefault = dlg.IsDefault,
-            }));
+            }), refreshMaterials: false);
         }
 
-        private void OnEditSelected(object sender, RoutedEventArgs e)
+        private void OnEditPlate(object sender, RoutedEventArgs e)
         {
-            var row = Selected;
-            if (row == null) { NoSelectionMsg(); return; }
-            var mats = MaterialLibraryService.GetMaterials();
-            var dlg = new AddEditPlateDialog(mats, row.Plate);
+            var row = SelectedPlateRow;
+            var mat = SelectedMaterialRow?.Material;
+            if (row == null || mat == null) return;
+            var dlg = new AddEditPlateDialog(new List<Material> { mat }, row.Plate);
             if (dlg.ShowDialog() != true) return;
             Try(() => MaterialLibraryService.SavePlate(new MaterialPlate
             {
-                Id = row.PlateId,
-                MaterialId = dlg.SelectedMaterialId,
+                Id         = row.PlateId,
+                MaterialId = mat.Id,
                 Code = dlg.Code,
                 Width = dlg.PlateWidth, Height = dlg.PlateHeight,
                 Thickness = dlg.Thickness, IsDefault = dlg.IsDefault,
-            }));
+            }), refreshMaterials: false);
         }
 
-        private void OnDeleteSelected(object sender, RoutedEventArgs e)
+        private void OnDeletePlate(object sender, RoutedEventArgs e)
         {
-            var row = Selected;
-            if (row == null) { NoSelectionMsg(); return; }
+            var row = SelectedPlateRow;
+            if (row == null) return;
             if (MessageBox.Show(
-                    $"Delete plate '{row.Code}' for material '{row.MaterialName}'?",
+                    $"Delete plate '{row.Code}'?",
                     "Confirm Delete", MessageBoxButton.YesNo, MessageBoxImage.Warning)
                 != MessageBoxResult.Yes) return;
-            Try(() => MaterialLibraryService.DeletePlate(row.PlateId));
+            Try(() => MaterialLibraryService.DeletePlate(row.PlateId), refreshMaterials: false);
         }
 
-        private void Try(Action action)
+        private void Try(Action action, bool refreshMaterials)
         {
-            try { action(); Refresh(); }
+            try
+            {
+                action();
+                var previousMat = SelectedMaterialRow?.Material;
+                if (refreshMaterials)
+                    RefreshMaterials();
+                else
+                    RefreshPlates(previousMat);
+            }
             catch (System.Exception ex)
             {
                 MessageBox.Show($"Error:\n{ex.Message}", "Error",
                     MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
-
-        private static void NoSelectionMsg() =>
-            MessageBox.Show("Select a row first.", "Nothing Selected",
-                MessageBoxButton.OK, MessageBoxImage.Information);
 
         // ─── Shared helpers ───────────────────────────────────────────────────
 
@@ -251,19 +467,27 @@ namespace FirstAcadPlugin
             return b;
         }
 
-        // ─── ViewModel ────────────────────────────────────────────────────────
+        // ─── ViewModels ───────────────────────────────────────────────────────
+
+        public class MaterialViewModel
+        {
+            public readonly Material Material;
+            public string Name        => Material.Name;
+            public string DensityText => $"{Material.Density:0} kg/m³";
+            public string Description => Material.Description ?? "";
+            public MaterialViewModel(Material m) { Material = m; }
+        }
 
         public class PlateViewModel
         {
             public readonly MaterialPlate Plate;
             public Guid   PlateId          => Plate.Id;
-            public string MaterialName     => Plate.MaterialName ?? "—";
             public string Code             => Plate.Code;
             public string ThicknessDisplay => $"{Plate.Thickness:0.##}";
             public string WidthDisplay     => $"{Plate.Width:0.##}";
             public string HeightDisplay    => $"{Plate.Height:0.##}";
-            public string DensityDisplay   => $"{Plate.MaterialDensity:0}";
-            public PlateViewModel(MaterialPlate plate) { Plate = plate; }
+            public string DefaultDisplay   => Plate.IsDefault ? "✓" : "";
+            public PlateViewModel(MaterialPlate p) { Plate = p; }
         }
     }
 
