@@ -25,7 +25,7 @@ jobs:
           dotnet-version: '8.0.x' # Match your project version
 
       - name: Restore dependencies
-        run: dotnet restore YourPlugin.csproj
+        run: dotnet restore /FirstAcadPlugin/FirstAcadPlugin.csproj
 
       - name: Build project
         run: dotnet build /FirstAcadPlugin/FirstAcadPlugin.csproj --configuration Release --no-restore
