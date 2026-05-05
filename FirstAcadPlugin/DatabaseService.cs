@@ -57,10 +57,10 @@ namespace FirstAcadPlugin
             Template, Titleblock, Sheet, Profile, ProfilePlot, Other
         };
 
-        /// <summary>True for types that need a discipline (i.e. functional drawings).</summary>
+        /// <summary>True for types that need a discipline.</summary>
         public static bool RequiresDiscipline(string drawingType)
         {
-            return drawingType == FunctionalDrawing;
+            return drawingType == FunctionalDrawing || drawingType == DetailDrawing;
         }
 
         /// <summary>
@@ -74,8 +74,8 @@ namespace FirstAcadPlugin
                 case BlockLibrary:      return @"01 Standards\Blocks";
                 case Template:          return @"01 Standards\Templates";
                 case Titleblock:        return @"01 Standards\Titleblocks";
-                case FunctionalDrawing: return System.IO.Path.Combine(@"02 Models", discipline ?? DrawingDisciplines.General);
-                case DetailDrawing:     return @"02 Models\General";
+                case FunctionalDrawing:
+                case DetailDrawing:     return System.IO.Path.Combine(@"02 Models", discipline ?? DrawingDisciplines.General);
                 case Sheet:             return @"03 Sheets";
                 case Profile:           return @"01 Standards\Profiles";
                 case ProfilePlot:       return @"03 Fabrication\Profile Plots";
