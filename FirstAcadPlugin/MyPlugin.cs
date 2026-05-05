@@ -102,10 +102,12 @@ namespace FirstAcadPlugin
 
             // ---------- PARTS ----------
             var partsPanel = MakePanel("Parts");
-            partsPanel.Source.Items.Add(MakeButton("Add\nMetadata",   "MCAddPartMetadata",   ColParts));
-            partsPanel.Source.Items.Add(MakeButton("Batch\nName",     "MCBatchAddPartNames", ColParts));
-            partsPanel.Source.Items.Add(MakeButton("View\nMetadata",  "MCViewPartMetadata",  ColParts));
-            partsPanel.Source.Items.Add(MakeButton("List\nParts",     "MCListParts",         ColParts));
+            partsPanel.Source.Items.Add(MakeButton("Add\nMetadata",    "MCAddPartMetadata",    ColParts));
+            partsPanel.Source.Items.Add(MakeButton("Edit\nMetadata",  "MCEditPartMetadata",   ColParts));
+            partsPanel.Source.Items.Add(MakeButton("Assign\nMaterial","MCAssignMaterial",     ColParts));
+            partsPanel.Source.Items.Add(MakeButton("Batch\nName",     "MCBatchAddPartNames",  ColParts));
+            partsPanel.Source.Items.Add(MakeButton("View\nMetadata",  "MCViewPartMetadata",   ColParts));
+            partsPanel.Source.Items.Add(MakeButton("List\nParts",     "MCListParts",          ColParts));
             tab.Panels.Add(partsPanel.Panel);
 
             // ---------- REFERENCES ----------

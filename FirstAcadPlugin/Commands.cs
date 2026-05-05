@@ -59,6 +59,182 @@ namespace FirstAcadPlugin
             catch { return new List<Material>(); }
         }
 
+        private static List<string> TryGetProfileNames(Editor editor)
+        {
+            try
+            {
+                var drawings = MaterialLibraryService.GetProfileDrawings();
+                var names = new List<string>();
+                foreach (var d in drawings) names.Add(d.Name);
+                return names;
+            }
+            catch { return new List<string>(); }
+        }
+
+        /// <summary>
+        /// MCEditPartMetadata — Edit all metadata on a selected 3D solid.
+        /// Pre-fills the dialog with the part's current XData (Part Name,
+        /// Material, Profile) and writes back any changes on Apply.
+        /// </summary>
+        [CommandMethod("MCEditPartMetadata")]
+        public void EditPartMetadata()
+        {
+            var doc = Application.DocumentManager.MdiActiveDocument;
+            var db  = doc.Database;
+            var editor = doc.Editor;
+
+            var opts = new PromptEntityOptions("\nSelect a 3D solid to edit: ");
+            opts.SetRejectMessage("\nMust be a 3D solid.");
+            opts.AddAllowedClass(typeof(Solid3d), true);
+
+            var result = editor.GetEntity(opts);
+            if (result.Status != PromptStatus.OK) { editor.WriteMessage("\nCommand cancelled."); return; }
+
+            // Read current XData
+            string curPartName    = "";
+            string curMaterialId  = "";
+            string curMaterialName = "";
+            string curProfileName  = "";
+            string handle = "";
+            string layer  = "";
+            double width = 0, depth = 0, height = 0;
+
+            using (var tr = db.TransactionManager.StartTransaction())
+            {
+                var entity = tr.GetObject(result.ObjectId, OpenMode.ForRead) as Entity;
+                if (entity == null) { editor.WriteMessage("\nCould not read object."); return; }
+
+                handle = entity.Handle.ToString();
+                layer  = entity.Layer;
+
+                try
+                {
+                    var ext = entity.GeometricExtents;
+                    width  = ext.MaxPoint.X - ext.MinPoint.X;
+                    depth  = ext.MaxPoint.Y - ext.MinPoint.Y;
+                    height = ext.MaxPoint.Z - ext.MinPoint.Z;
+                }
+                catch { }
+
+                var xdata = entity.GetXDataForApplication(AppName);
+                if (xdata != null)
+                {
+                    var vals = xdata.AsArray();
+                    for (int i = 1; i + 1 < vals.Length; i += 2)
+                    {
+                        string key = vals[i].Value.ToString();
+                        string val = vals[i + 1].Value.ToString();
+                        if      (key == "PartName")     curPartName     = val;
+                        else if (key == "MaterialId")   curMaterialId   = val;
+                        else if (key == "MaterialName") curMaterialName = val;
+                        else if (key == "ProfileName")  curProfileName  = val;
+                    }
+                }
+                tr.Commit();
+            }
+
+            var materials    = TryGetMaterials(editor);
+            var profileNames = TryGetProfileNames(editor);
+
+            var dialog = new EditPartMetadataDialog(
+                curPartName, curMaterialId, curMaterialName, curProfileName,
+                handle, layer, width, depth, height,
+                materials, profileNames);
+
+            if (Application.ShowModalWindow(dialog) != true)
+            { editor.WriteMessage("\nCommand cancelled."); return; }
+
+            // Build the update map and apply via MergeXData
+            var updates = new System.Collections.Generic.Dictionary<string, string>
+            {
+                ["PartName"]     = dialog.NewPartName,
+                ["MaterialId"]   = dialog.SelectedMaterial?.Id.ToString()   ?? "",
+                ["MaterialName"] = dialog.SelectedMaterial?.Name            ?? "",
+                ["ProfileName"]  = dialog.SelectedProfileName               ?? "",
+            };
+
+            using (var docLock = doc.LockDocument())
+            using (var tr = db.TransactionManager.StartTransaction())
+            {
+                var entity = tr.GetObject(result.ObjectId, OpenMode.ForWrite) as Entity;
+                if (entity == null) { editor.WriteMessage("\nCould not open object for write."); return; }
+
+                PartGeometryHelper.MergeXData(entity, updates, tr, db);
+                tr.Commit();
+            }
+
+            editor.WriteMessage($"\nMetadata updated: '{dialog.NewPartName}'");
+            if (dialog.SelectedMaterial != null)
+                editor.WriteMessage($", material: {dialog.SelectedMaterial.Name}");
+            if (!string.IsNullOrEmpty(dialog.SelectedProfileName))
+                editor.WriteMessage($", profile: {dialog.SelectedProfileName}");
+        }
+
+        /// <summary>
+        /// MCAssignMaterial — Assign a material grade to multiple selected
+        /// entities in one operation. Preserves all other XData keys.
+        /// </summary>
+        [CommandMethod("MCAssignMaterial")]
+        public void AssignMaterial()
+        {
+            var doc = Application.DocumentManager.MdiActiveDocument;
+            var db  = doc.Database;
+            var editor = doc.Editor;
+
+            var selOpts = new PromptSelectionOptions
+            {
+                MessageForAdding = "\nSelect objects to assign material to: ",
+                AllowDuplicates  = false,
+            };
+
+            var selResult = editor.GetSelection(selOpts);
+            if (selResult.Status == PromptStatus.Cancel)
+            { editor.WriteMessage("\nCommand cancelled."); return; }
+            if (selResult.Status != PromptStatus.OK || selResult.Value.Count == 0)
+            { editor.WriteMessage("\nNo objects selected."); return; }
+
+            var materials = TryGetMaterials(editor);
+            if (materials.Count == 0)
+            {
+                editor.WriteMessage("\nNo materials in the project library. Add materials via MCMaterialLibrary first.");
+                return;
+            }
+
+            var dialog = new AssignMaterialDialog(selResult.Value.Count, materials);
+            if (Application.ShowModalWindow(dialog) != true)
+            { editor.WriteMessage("\nCommand cancelled."); return; }
+
+            var mat = dialog.SelectedMaterial;
+            var updates = new System.Collections.Generic.Dictionary<string, string>
+            {
+                ["MaterialId"]   = mat.Id.ToString(),
+                ["MaterialName"] = mat.Name,
+            };
+
+            int updated = 0, skipped = 0;
+            using (var docLock = doc.LockDocument())
+            using (var tr = db.TransactionManager.StartTransaction())
+            {
+                RegisterApp(db, tr);
+                foreach (SelectedObject sel in selResult.Value)
+                {
+                    try
+                    {
+                        var entity = tr.GetObject(sel.ObjectId, OpenMode.ForWrite) as Entity;
+                        if (entity == null) { skipped++; continue; }
+                        PartGeometryHelper.MergeXData(entity, updates, tr, db);
+                        updated++;
+                    }
+                    catch { skipped++; }
+                }
+                tr.Commit();
+            }
+
+            editor.WriteMessage($"\nMaterial '{mat.Name}' assigned to {updated} object(s).");
+            if (skipped > 0)
+                editor.WriteMessage($" ({skipped} skipped)");
+        }
+
         private static ResultBuffer BuildPartXData(string partName, Material material)
         {
             var items = new System.Collections.Generic.List<TypedValue>

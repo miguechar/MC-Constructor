@@ -473,6 +473,60 @@ namespace FirstAcadPlugin
             entity.XData = new ResultBuffer(vals.ToArray());
         }
 
+        /// <summary>
+        /// Updates specific XData keys while preserving all other existing
+        /// key-value pairs. Keys in <paramref name="updates"/> that don't yet
+        /// exist in the XData are appended. Use an empty string value to clear a key.
+        /// </summary>
+        public static void MergeXData(Entity entity, System.Collections.Generic.Dictionary<string, string> updates,
+            Transaction tr, Database db)
+        {
+            var regAppTable = tr.GetObject(db.RegAppTableId, OpenMode.ForWrite) as RegAppTable;
+            if (!regAppTable.Has(Commands.AppName))
+            {
+                var regApp = new RegAppTableRecord { Name = Commands.AppName };
+                regAppTable.Add(regApp);
+                tr.AddNewlyCreatedDBObject(regApp, true);
+            }
+
+            var vals = new List<TypedValue>();
+            vals.Add(new TypedValue((int)DxfCode.ExtendedDataRegAppName, Commands.AppName));
+
+            var handled = new System.Collections.Generic.HashSet<string>();
+            var existing = entity.GetXDataForApplication(Commands.AppName);
+            if (existing != null)
+            {
+                var arr = existing.AsArray();
+                for (int i = 1; i + 1 < arr.Length; i += 2)
+                {
+                    string key = arr[i].Value.ToString();
+                    string newVal;
+                    if (updates.TryGetValue(key, out newVal))
+                    {
+                        vals.Add(new TypedValue((int)DxfCode.ExtendedDataAsciiString, key));
+                        vals.Add(new TypedValue((int)DxfCode.ExtendedDataAsciiString, newVal));
+                        handled.Add(key);
+                    }
+                    else
+                    {
+                        vals.Add(arr[i]);
+                        vals.Add(arr[i + 1]);
+                    }
+                }
+            }
+
+            foreach (var kv in updates)
+            {
+                if (!handled.Contains(kv.Key))
+                {
+                    vals.Add(new TypedValue((int)DxfCode.ExtendedDataAsciiString, kv.Key));
+                    vals.Add(new TypedValue((int)DxfCode.ExtendedDataAsciiString, kv.Value));
+                }
+            }
+
+            entity.XData = new ResultBuffer(vals.ToArray());
+        }
+
         public static (string partName, Guid? partId, Guid? parentPartId, bool isOriginal) GetPartXData(Entity entity)
         {
             string partName = "";

@@ -109,8 +109,10 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="AssignMaterialDialog.cs" />
     <Compile Include="BatchPartNameDialog.cs" />
     <Compile Include="Commands.cs" />
+    <Compile Include="EditPartMetadataDialog.cs" />
     <Compile Include="CreateDrawingDialog.cs" />
     <Compile Include="CreateProjectDialog.cs" />
     <Compile Include="DatabaseService.cs" />
