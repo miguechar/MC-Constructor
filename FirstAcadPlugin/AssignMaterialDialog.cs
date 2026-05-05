@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -83,7 +84,10 @@ namespace FirstAcadPlugin
             else
             {
                 foreach (var m in materials)
-                    _materialCombo.Items.Add(new ComboBoxItem { Content = $"{m.Name}  —  {m.Density:0} kg/m³", Tag = m });
+                {
+                    string dens = m.Density.ToString("G6", CultureInfo.InvariantCulture);
+                    _materialCombo.Items.Add(new ComboBoxItem { Content = $"{m.Name}  —  {dens} kg/mm³", Tag = m });
+                }
             }
             _materialCombo.SelectedIndex = 0;
             Grid.SetRow(_materialCombo, 3);

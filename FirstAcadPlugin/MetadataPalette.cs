@@ -169,7 +169,7 @@ namespace FirstAcadPlugin
                 if (density <= 0) return "—";
 
                 double volumeMm3 = width * depth * height;
-                double weightKg  = (density / 1e9) * volumeMm3;
+                double weightKg  = density * volumeMm3;
 
                 if (weightKg < 0.001) return $"{weightKg * 1000:F1} g";
                 if (weightKg < 1000)  return $"{weightKg:F2} kg";

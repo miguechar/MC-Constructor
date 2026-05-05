@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -71,8 +72,8 @@ namespace FirstAcadPlugin
             matSection.Children.Add(matToolbar);
 
             _materialsGrid = MakeGrid();
-            AddCol(_materialsGrid, "Name",             "Name",        new DataGridLength(1, DataGridLengthUnitType.Star));
-            AddCol(_materialsGrid, "Density (kg/m³)",  "DensityText", 120);
+            AddCol(_materialsGrid, "Name",              "Name",        new DataGridLength(1, DataGridLengthUnitType.Star));
+            AddCol(_materialsGrid, "Density (kg/mm³)", "DensityText", 140);
             AddCol(_materialsGrid, "Description",      "Description", new DataGridLength(1, DataGridLengthUnitType.Star));
             _materialsGrid.SelectionChanged += OnMaterialSelectionChanged;
             Grid.SetRow(_materialsGrid, 2);
@@ -473,7 +474,7 @@ namespace FirstAcadPlugin
         {
             public readonly Material Material;
             public string Name        => Material.Name;
-            public string DensityText => $"{Material.Density:0} kg/m³";
+            public string DensityText => Material.Density.ToString("G6", CultureInfo.InvariantCulture) + " kg/mm³";
             public string Description => Material.Description ?? "";
             public MaterialViewModel(Material m) { Material = m; }
         }
@@ -518,9 +519,13 @@ namespace FirstAcadPlugin
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(130) });
             g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
-            MaterialLibraryWindow.FormRow(g, 0, "Name:",            _nameBox    = MaterialLibraryWindow.MakeBox(existing?.Name ?? ""));
-            MaterialLibraryWindow.FormRow(g, 1, "Density (kg/m³):", _densityBox = MaterialLibraryWindow.MakeBox(existing?.Density.ToString("0") ?? "7850"));
-            MaterialLibraryWindow.FormRow(g, 2, "Description:",     _descBox    = MaterialLibraryWindow.MakeBox(existing?.Description ?? ""));
+            string densityDefault = existing != null
+                ? existing.Density.ToString("G10", CultureInfo.InvariantCulture)
+                : "0.0000078";
+
+            MaterialLibraryWindow.FormRow(g, 0, "Name:",             _nameBox    = MaterialLibraryWindow.MakeBox(existing?.Name ?? ""));
+            MaterialLibraryWindow.FormRow(g, 1, "Density (kg/mm³):", _densityBox = MaterialLibraryWindow.MakeBox(densityDefault));
+            MaterialLibraryWindow.FormRow(g, 2, "Description:",      _descBox    = MaterialLibraryWindow.MakeBox(existing?.Description ?? ""));
 
             var btns = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 12, 0, 0) };
             Grid.SetRow(btns, 3); Grid.SetColumnSpan(btns, 2);
@@ -536,8 +541,8 @@ namespace FirstAcadPlugin
         {
             if (string.IsNullOrWhiteSpace(_nameBox.Text))
             { Warn("Material name is required."); _nameBox.Focus(); return; }
-            if (!double.TryParse(_densityBox.Text, out double d) || d <= 0)
-            { Warn("Enter a positive density (kg/m³)."); _densityBox.Focus(); return; }
+            if (!double.TryParse(_densityBox.Text.Trim(), NumberStyles.Any, CultureInfo.InvariantCulture, out double d) || d <= 0)
+            { Warn("Enter a positive density in kg/mm³ (e.g. 0.0000078 for steel)."); _densityBox.Focus(); return; }
             MaterialName = _nameBox.Text.Trim();
             Density      = d;
             Description  = _descBox.Text.Trim();
