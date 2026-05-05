@@ -28,7 +28,7 @@ jobs:
         run: dotnet restore YourPlugin.csproj
 
       - name: Build project
-        run: dotnet build YourPlugin.csproj --configuration Release --no-restore
+        run: dotnet build FirstAcadPlugin.csproj --configuration Release --no-restore
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
