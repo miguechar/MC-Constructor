@@ -1119,7 +1119,11 @@ namespace FirstAcadPlugin
                 return;
             }
 
-            editor.WriteMessage($"\nPlate size: {dialog.PlateWidth} x {dialog.PlateHeight} mm");
+            if (dialog.SelectedPlate != null)
+                editor.WriteMessage($"\nPlate: {dialog.SelectedPlate.Code} ({dialog.SelectedPlate.MaterialName})" +
+                    $"  {dialog.PlateWidth} × {dialog.PlateHeight} mm  t={dialog.PlateThickness} mm");
+            else
+                editor.WriteMessage($"\nPlate size: {dialog.PlateWidth} x {dialog.PlateHeight} mm");
             editor.WriteMessage($"\nPart spacing: {dialog.Spacing} mm");
 
             // Perform nesting
