@@ -40,6 +40,7 @@ namespace FirstAcadPlugin
             ResizeMode = ResizeMode.CanResize;
             MinWidth = 460;
             MinHeight = 420;
+            Background = D(45, 45, 48);
 
             var stack = new StackPanel { Margin = new Thickness(20) };
 
@@ -57,7 +58,9 @@ namespace FirstAcadPlugin
                 Height = 60,
                 AcceptsReturn = true,
                 TextWrapping = TextWrapping.Wrap,
-                VerticalScrollBarVisibility = ScrollBarVisibility.Auto
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                Background = D(37, 37, 38), Foreground = Brushes.White,
+                BorderBrush = D(67, 67, 70), BorderThickness = new Thickness(1),
             };
             stack.Children.Add(descriptionBox);
 
@@ -68,7 +71,9 @@ namespace FirstAcadPlugin
             {
                 Content = "Browse...",
                 Padding = new Thickness(12, 4, 12, 4),
-                Margin = new Thickness(8, 0, 0, 0)
+                Margin = new Thickness(8, 0, 0, 0),
+                Background = D(70, 70, 75), Foreground = Brushes.White,
+                BorderThickness = new Thickness(0),
             };
             browseBtn.Click += BrowseButton_Click;
             DockPanel.SetDock(browseBtn, Dock.Right);
@@ -78,7 +83,9 @@ namespace FirstAcadPlugin
             {
                 FontSize = 12,
                 Padding = new Thickness(6, 4, 6, 4),
-                Text = defaultParentDir ?? ""
+                Text = defaultParentDir ?? "",
+                Background = D(37, 37, 38), Foreground = Brushes.White,
+                BorderBrush = D(67, 67, 70), BorderThickness = new Thickness(1),
             };
             parentDirBox.TextChanged += (s, e) => UpdatePreview();
             browseRow.Children.Add(parentDirBox);
@@ -88,7 +95,7 @@ namespace FirstAcadPlugin
             previewText = new TextBlock
             {
                 FontSize = 11,
-                Foreground = Brushes.Gray,
+                Foreground = D(140, 140, 145),
                 TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(0, 0, 0, 12)
             };
@@ -97,7 +104,7 @@ namespace FirstAcadPlugin
             statusText = new TextBlock
             {
                 FontSize = 11,
-                Foreground = Brushes.Gray,
+                Foreground = D(140, 140, 145),
                 TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(0, 0, 0, 12)
             };
@@ -116,9 +123,8 @@ namespace FirstAcadPlugin
                 Padding = new Thickness(20, 6, 20, 6),
                 Margin = new Thickness(0, 0, 8, 0),
                 IsDefault = true,
-                Background = new SolidColorBrush(Color.FromRgb(0, 120, 200)),
-                Foreground = Brushes.White,
-                BorderThickness = new Thickness(0)
+                Background = D(0, 122, 204), Foreground = Brushes.White,
+                BorderThickness = new Thickness(0), FontWeight = FontWeights.SemiBold,
             };
             createBtn.Click += CreateButton_Click;
             buttonPanel.Children.Add(createBtn);
@@ -127,7 +133,9 @@ namespace FirstAcadPlugin
             {
                 Content = "Cancel",
                 Padding = new Thickness(20, 6, 20, 6),
-                IsCancel = true
+                IsCancel = true,
+                Background = D(60, 60, 65), Foreground = Brushes.White,
+                BorderThickness = new Thickness(0),
             };
             cancelBtn.Click += (s, e) => { DialogResult = false; Close(); };
             buttonPanel.Children.Add(cancelBtn);
@@ -242,14 +250,17 @@ namespace FirstAcadPlugin
         private void ShowError(string message)
         {
             statusText.Text = message;
-            statusText.Foreground = Brushes.Red;
+            statusText.Foreground = new SolidColorBrush(Color.FromRgb(220, 70, 70));
         }
+
+        private static SolidColorBrush D(byte r, byte g, byte b) => new SolidColorBrush(Color.FromRgb(r, g, b));
 
         private TextBlock MakeLabel(string text) => new TextBlock
         {
             Text = text,
-            FontWeight = FontWeights.Bold,
+            FontWeight = FontWeights.SemiBold,
             FontSize = 12,
+            Foreground = new SolidColorBrush(Color.FromRgb(200, 200, 200)),
             Margin = new Thickness(0, 0, 0, 4)
         };
 
@@ -258,7 +269,9 @@ namespace FirstAcadPlugin
             Text = defaultText,
             FontSize = 12,
             Padding = new Thickness(6, 4, 6, 4),
-            Margin = new Thickness(0, 0, 0, 12)
+            Margin = new Thickness(0, 0, 0, 12),
+            Background = D(37, 37, 38), Foreground = Brushes.White,
+            BorderBrush = D(67, 67, 70), BorderThickness = new Thickness(1),
         };
     }
 }

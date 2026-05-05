@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 
 namespace FirstAcadPlugin
 {
@@ -26,6 +27,7 @@ namespace FirstAcadPlugin
             ResizeMode = ResizeMode.CanResize;
             MinWidth = 300;
             MinHeight = 300;
+            Background = new SolidColorBrush(Color.FromRgb(45, 45, 48));
 
             // Create the main container
             var mainGrid = new Grid();
@@ -38,6 +40,8 @@ namespace FirstAcadPlugin
             {
                 Content = "Select a part to insert:",
                 FontWeight = FontWeights.Bold,
+                Foreground = new SolidColorBrush(Color.FromRgb(200, 200, 200)),
+                Background = new SolidColorBrush(Color.FromRgb(45, 45, 48)),
                 Margin = new Thickness(10, 10, 10, 5)
             };
             Grid.SetRow(headerLabel, 0);
@@ -47,7 +51,10 @@ namespace FirstAcadPlugin
             partListBox = new ListBox
             {
                 Margin = new Thickness(10, 0, 10, 10),
-                DisplayMemberPath = "PartName"
+                DisplayMemberPath = "PartName",
+                Background = new SolidColorBrush(Color.FromRgb(37, 37, 38)),
+                Foreground = Brushes.White,
+                BorderBrush = new SolidColorBrush(Color.FromRgb(67, 67, 70)),
             };
 
             foreach (var part in availableParts)
@@ -104,10 +111,12 @@ namespace FirstAcadPlugin
             var okButton = new Button
             {
                 Content = "Insert",
-                Width = 80,
-                Height = 28,
+                Width = 80, Height = 28,
                 Margin = new Thickness(0, 0, 10, 0),
-                IsDefault = true
+                IsDefault = true,
+                Background = new SolidColorBrush(Color.FromRgb(0, 122, 204)),
+                Foreground = Brushes.White, BorderThickness = new Thickness(0),
+                FontWeight = FontWeights.SemiBold,
             };
             okButton.Click += OkButton_Click;
             buttonPanel.Children.Add(okButton);
@@ -116,9 +125,10 @@ namespace FirstAcadPlugin
             var cancelButton = new Button
             {
                 Content = "Cancel",
-                Width = 80,
-                Height = 28,
-                IsCancel = true
+                Width = 80, Height = 28,
+                IsCancel = true,
+                Background = new SolidColorBrush(Color.FromRgb(60, 60, 65)),
+                Foreground = Brushes.White, BorderThickness = new Thickness(0),
             };
             cancelButton.Click += CancelButton_Click;
             buttonPanel.Children.Add(cancelButton);

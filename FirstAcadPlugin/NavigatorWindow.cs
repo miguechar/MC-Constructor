@@ -184,7 +184,10 @@ namespace FirstAcadPlugin
             {
                 Content = "Refresh",
                 Padding = new Thickness(16, 6, 16, 6),
-                Margin = new Thickness(0, 0, 8, 0)
+                Margin = new Thickness(0, 0, 8, 0),
+                Background = new SolidColorBrush(Color.FromRgb(70, 70, 75)),
+                Foreground = Brushes.White,
+                BorderThickness = new Thickness(0),
             };
             refreshBtn.Click += (s, e) => LoadDrawings();
             btnPanel.Children.Add(refreshBtn);
@@ -193,7 +196,10 @@ namespace FirstAcadPlugin
             {
                 Content = "Close",
                 Padding = new Thickness(16, 6, 16, 6),
-                IsCancel = true
+                IsCancel = true,
+                Background = new SolidColorBrush(Color.FromRgb(60, 60, 65)),
+                Foreground = Brushes.White,
+                BorderThickness = new Thickness(0),
             };
             closeBtn.Click += (s, e) => Close();
             btnPanel.Children.Add(closeBtn);

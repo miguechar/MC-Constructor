@@ -26,35 +26,22 @@ namespace FirstAcadPlugin
             Height = 420;
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
             ResizeMode = ResizeMode.NoResize;
+            Background = D(45, 45, 48);
 
             var stack = new StackPanel { Margin = new Thickness(20) };
 
             stack.Children.Add(MakeLabel("Drawing Type:"));
-            typeCombo = new ComboBox
-            {
-                FontSize = 12,
-                Padding = new Thickness(6, 4, 6, 4),
-                Margin = new Thickness(0, 0, 0, 12)
-            };
+            typeCombo = DarkCombo(12);
             foreach (var type in DrawingTypes.All)
-            {
                 typeCombo.Items.Add(new ComboItem(type, DrawingTypes.DisplayName(type)));
-            }
             typeCombo.SelectionChanged += (s, e) => UpdateDisciplineEnabled();
             stack.Children.Add(typeCombo);
 
             stack.Children.Add(MakeLabel("Discipline:"));
-            disciplineCombo = new ComboBox
-            {
-                FontSize = 12,
-                Padding = new Thickness(6, 4, 6, 4),
-                Margin = new Thickness(0, 0, 0, 12)
-            };
+            disciplineCombo = DarkCombo(12);
             disciplineCombo.Items.Add(new ComboItem("", "(none)"));
             foreach (var d in DrawingDisciplines.All)
-            {
                 disciplineCombo.Items.Add(new ComboItem(d, d));
-            }
             stack.Children.Add(disciplineCombo);
 
             stack.Children.Add(MakeLabel("Description:"));
@@ -66,15 +53,16 @@ namespace FirstAcadPlugin
                 Height = 80,
                 AcceptsReturn = true,
                 TextWrapping = TextWrapping.Wrap,
-                VerticalScrollBarVisibility = ScrollBarVisibility.Auto
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                Background = D(37, 37, 38), Foreground = Brushes.White,
+                BorderBrush = D(67, 67, 70), BorderThickness = new Thickness(1),
             };
             stack.Children.Add(descriptionBox);
 
-            // Show the linked project for context (read-only).
             projectInfoText = new TextBlock
             {
                 FontSize = 11,
-                Foreground = Brushes.Gray,
+                Foreground = D(140, 140, 145),
                 TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(0, 0, 0, 12)
             };
@@ -92,7 +80,9 @@ namespace FirstAcadPlugin
                 Content = "Save",
                 Padding = new Thickness(20, 6, 20, 6),
                 Margin = new Thickness(0, 0, 8, 0),
-                IsDefault = true
+                IsDefault = true,
+                Background = D(0, 122, 204), Foreground = Brushes.White,
+                BorderThickness = new Thickness(0), FontWeight = FontWeights.SemiBold,
             };
             saveBtn.Click += SaveButton_Click;
             buttonPanel.Children.Add(saveBtn);
@@ -101,7 +91,9 @@ namespace FirstAcadPlugin
             {
                 Content = "Cancel",
                 Padding = new Thickness(20, 6, 20, 6),
-                IsCancel = true
+                IsCancel = true,
+                Background = D(60, 60, 65), Foreground = Brushes.White,
+                BorderThickness = new Thickness(0),
             };
             cancelBtn.Click += (s, e) => { DialogResult = false; Close(); };
             buttonPanel.Children.Add(cancelBtn);
@@ -182,11 +174,22 @@ namespace FirstAcadPlugin
             Close();
         }
 
+        private static SolidColorBrush D(byte r, byte g, byte b) => new SolidColorBrush(Color.FromRgb(r, g, b));
+
+        private static ComboBox DarkCombo(int fontSize) => new ComboBox
+        {
+            FontSize = fontSize, Padding = new Thickness(6, 4, 6, 4),
+            Margin = new Thickness(0, 0, 0, 12),
+            Background = D(37, 37, 38), Foreground = Brushes.White,
+            BorderBrush = D(67, 67, 70), BorderThickness = new Thickness(1),
+        };
+
         private TextBlock MakeLabel(string text) => new TextBlock
         {
             Text = text,
-            FontWeight = FontWeights.Bold,
+            FontWeight = FontWeights.SemiBold,
             FontSize = 12,
+            Foreground = new SolidColorBrush(Color.FromRgb(200, 200, 200)),
             Margin = new Thickness(0, 0, 0, 4)
         };
 
