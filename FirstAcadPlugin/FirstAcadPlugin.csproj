@@ -32,21 +32,21 @@
     <WarningLevel>4</WarningLevel>
   </PropertyGroup>
   <ItemGroup>
-    <!-- AutoCAD References - Private=False because AutoCAD provides these -->
+    <!-- AutoCAD References - Private=False because AutoCAD provides these at runtime -->
     <Reference Include="AcCoreMgd">
-      <HintPath>..\..\..\..\..\..\Autodesk\ObjectARX_for_AutoCAD_2024_Win_64bit_dlm\inc\AcCoreMgd.dll</HintPath>
+      <HintPath>lib\AcCoreMgd.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="AcDbMgd">
-      <HintPath>..\..\..\..\..\..\Autodesk\ObjectARX_for_AutoCAD_2024_Win_64bit_dlm\inc\AcDbMgd.dll</HintPath>
+      <HintPath>lib\AcDbMgd.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="AcMgd">
-      <HintPath>..\..\..\..\..\..\Autodesk\ObjectARX_for_AutoCAD_2024_Win_64bit_dlm\inc\AcMgd.dll</HintPath>
+      <HintPath>lib\AcMgd.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="AdWindows">
-      <HintPath>..\..\..\..\..\..\Autodesk\ObjectARX_for_AutoCAD_2024_Win_64bit_dlm\inc\AdWindows.dll</HintPath>
+      <HintPath>lib\AdWindows.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <!-- Npgsql and dependencies - Private=True to copy to output -->
@@ -151,6 +151,9 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <Content Include="SQL\add_profile_drawing_types.sql">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="SQL\create_materials_and_profiles.sql">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>

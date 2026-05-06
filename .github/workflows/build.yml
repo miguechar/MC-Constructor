@@ -1,0 +1,34 @@
+name: Build
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build FirstAcadPlugin
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Restore NuGet packages
+        run: msbuild FirstAcadPlugin.sln /t:Restore /p:RestorePackagesConfig=true /verbosity:minimal
+
+      - name: Build solution
+        run: msbuild FirstAcadPlugin.sln /m /p:Configuration=Release /p:Platform="Any CPU" /verbosity:minimal
+
+      - name: Upload plugin artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: FirstAcadPlugin-Release
+          path: FirstAcadPlugin/bin/Release/**
+          if-no-files-found: error
