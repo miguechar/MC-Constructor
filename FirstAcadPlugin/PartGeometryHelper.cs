@@ -228,97 +228,108 @@ namespace FirstAcadPlugin
         /// temp file. Returns null on failure.
         /// </summary>
         public static byte[] SerializeEntityToDwgBytes(ObjectId entityId)
+{
+    if (entityId.IsNull || !entityId.IsValid)
+    {
+        Log("SerializeEntityToDwgBytes aborted: invalid ObjectId.");
+        return null;
+    }
+
+    var sourceDb = entityId.Database;
+    if (sourceDb == null)
+    {
+        Log($"SerializeEntityToDwgBytes aborted: sourceDb is null for {entityId}.");
+        return null;
+    }
+
+    var doc = AcadApp.DocumentManager.MdiActiveDocument;
+    if (doc == null)
+    {
+        Log($"SerializeEntityToDwgBytes aborted: no active document for {entityId}.");
+        return null;
+    }
+
+    string entityType = SafeEntityTypeName(entityId);
+    string entityHandle = SafeObjectHandle(entityId);
+    string tempFile = Path.Combine(
+        Path.GetTempPath(),
+        Guid.NewGuid().ToString("N") + ".dwg");
+
+    Database wblockDb = null;
+    try
+    {
+        var ids = new ObjectIdCollection();
+        ids.Add(entityId);
+
+        Log(
+            $"SerializeEntityToDwgBytes start: id={entityId}, " +
+            $"handle={entityHandle}, type={entityType}, temp='{tempFile}'");
+
+        using (doc.LockDocument())
         {
-            if (entityId.IsNull || !entityId.IsValid)
-            {
-                Log("SerializeEntityToDwgBytes aborted: invalid ObjectId.");
-                return null;
-            }
+            wblockDb = sourceDb.Wblock(ids, Point3d.Origin);
+        }
 
-            var sourceDb = entityId.Database;
-            if (sourceDb == null)
-            {
-                Log($"SerializeEntityToDwgBytes aborted: sourceDb is null for {entityId}.");
-                return null;
-            }
+        if (wblockDb == null)
+        {
+            Log(
+                $"SerializeEntityToDwgBytes failed: Wblock returned null " +
+                $"for id={entityId}, type={entityType}");
+            return null;
+        }
 
-            string entityType = SafeEntityTypeName(entityId);
-            string entityHandle = SafeObjectHandle(entityId);
-            string tempFile = Path.Combine(
-                Path.GetTempPath(),
-                Guid.NewGuid().ToString("N") + ".dwg");
+        wblockDb.SaveAs(tempFile, DwgVersion.Current);
 
-            Database wblockDb = null;
+        if (!File.Exists(tempFile))
+        {
+            Log(
+                $"SerializeEntityToDwgBytes failed: temp DWG not created " +
+                $"for id={entityId}, path='{tempFile}'");
+            return null;
+        }
+
+        byte[] bytes = File.ReadAllBytes(tempFile);
+        Log(
+            $"SerializeEntityToDwgBytes success: id={entityId}, " +
+            $"type={entityType}, bytes={bytes.Length}");
+
+        return bytes;
+    }
+    catch (Exception ex)
+    {
+        Log(
+            $"SerializeEntityToDwgBytes exception: id={entityId}, " +
+            $"handle={entityHandle}, type={entityType}, ex={ex}");
+        return null;
+    }
+    finally
+    {
+        if (wblockDb != null)
+        {
             try
             {
-                var ids = new ObjectIdCollection();
-                ids.Add(entityId);
-
-                Log(
-                    $"SerializeEntityToDwgBytes start: id={entityId}, " +
-                    $"handle={entityHandle}, type={entityType}, temp='{tempFile}'");
-
-                wblockDb = sourceDb.Wblock(ids, Point3d.Origin);
-                if (wblockDb == null)
-                {
-                    Log(
-                        $"SerializeEntityToDwgBytes failed: Wblock returned null " +
-                        $"for id={entityId}, type={entityType}");
-                    return null;
-                }
-
-                wblockDb.SaveAs(tempFile, DwgVersion.Current);
-
-                if (!File.Exists(tempFile))
-                {
-                    Log(
-                        $"SerializeEntityToDwgBytes failed: temp DWG not created " +
-                        $"for id={entityId}, path='{tempFile}'");
-                    return null;
-                }
-
-                byte[] bytes = File.ReadAllBytes(tempFile);
-                Log(
-                    $"SerializeEntityToDwgBytes success: id={entityId}, " +
-                    $"type={entityType}, bytes={bytes.Length}");
-
-                return bytes;
+                wblockDb.Dispose();
             }
             catch (Exception ex)
             {
                 Log(
-                    $"SerializeEntityToDwgBytes exception: id={entityId}, " +
-                    $"handle={entityHandle}, type={entityType}, ex={ex}");
-                return null;
-            }
-            finally
-            {
-                if (wblockDb != null)
-                {
-                    try
-                    {
-                        wblockDb.Dispose();
-                    }
-                    catch (Exception ex)
-                    {
-                        Log(
-                            $"SerializeEntityToDwgBytes dispose warning: " +
-                            $"id={entityId}, ex={ex.Message}");
-                    }
-                }
-
-                try
-                {
-                    if (File.Exists(tempFile)) File.Delete(tempFile);
-                }
-                catch (Exception ex)
-                {
-                    Log(
-                        $"SerializeEntityToDwgBytes temp delete warning: " +
-                        $"path='{tempFile}', ex={ex.Message}");
-                }
+                    $"SerializeEntityToDwgBytes dispose warning: " +
+                    $"id={entityId}, ex={ex.Message}");
             }
         }
+
+        try
+        {
+            if (File.Exists(tempFile)) File.Delete(tempFile);
+        }
+        catch (Exception ex)
+        {
+            Log(
+                $"SerializeEntityToDwgBytes temp delete warning: " +
+                $"path='{tempFile}', ex={ex.Message}");
+        }
+    }
+}
 
         /// <summary>
         /// If geometry_data is in the new dwg-blob format, decode and return
