@@ -132,10 +132,17 @@
     <Compile Include="PartGeometryHelper.cs" />
     <Compile Include="PartMetadataDialog.cs" />
     <Compile Include="PartPropertiesExtension.cs" />
+    <Compile Include="IStorageProvider.cs" />
+    <Compile Include="JsonMigrationService.cs" />
+    <Compile Include="JsonStorageProvider.cs" />
+    <Compile Include="NpgsqlStorageProvider.cs" />
     <Compile Include="ProjectDialog.cs" />
+    <Compile Include="ProjectFile.cs" />
+    <Compile Include="ProjectFileWriter.cs" />
     <Compile Include="ProjectFolderLayout.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="RibbonIcons.cs" />
+    <Compile Include="StorageRouter.cs" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="SQL\create_projects_table.sql">

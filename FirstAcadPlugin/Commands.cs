@@ -448,6 +448,24 @@ namespace FirstAcadPlugin
                 DatabaseService.SetCurrentProject(dialog.SelectedProject);
                 editor.WriteMessage($"\nProject opened: {dialog.SelectedProject.Name}");
                 MetadataPalette.RefreshProjectInfo();
+
+                // Auto-create pro.json for existing postgres projects that don't have one yet.
+                if (!string.IsNullOrEmpty(dialog.SelectedProject.Directory)
+                    && System.IO.Directory.Exists(dialog.SelectedProject.Directory))
+                {
+                    string jsonPath = System.IO.Path.Combine(dialog.SelectedProject.Directory, "pro.json");
+                    if (!System.IO.File.Exists(jsonPath))
+                    {
+                        try
+                        {
+                            ProjectFileWriter.WriteNew(jsonPath, dialog.SelectedProject,
+                                StorageRouter.ActiveMode ?? "postgres",
+                                DatabaseService.GetConnectionString());
+                            editor.WriteMessage($"\nCreated pro.json for offline access: {jsonPath}");
+                        }
+                        catch { /* non-fatal */ }
+                    }
+                }
             }
         }
 
@@ -463,12 +481,13 @@ namespace FirstAcadPlugin
             var doc = Application.DocumentManager.MdiActiveDocument;
             var editor = doc.Editor;
 
-            // Check connection up front: it's a worse experience to fill in
-            // a dialog and then fail.
-            if (!DatabaseService.TestConnection(out var connError))
+            // Skip DB check in JSON mode or when no provider is configured yet
+            // (first-time JSON project creation needs no database).
+            if (StorageRouter.IsInitialized && StorageRouter.ActiveMode == "postgres"
+                && !DatabaseService.TestConnection(out var connError))
             {
                 editor.WriteMessage($"\nDatabase not reachable: {connError}");
-                editor.WriteMessage("\nUse MCConfigDatabase to set the connection.");
+                editor.WriteMessage("\nUse MCConfigDatabase or open a project file first.");
                 return;
             }
 
@@ -481,20 +500,22 @@ namespace FirstAcadPlugin
                 return;
             }
 
-            // Block duplicate names early so we don't create folders we
-            // can't insert a row for.
-            try
+            // Block duplicate names early (only meaningful when a provider is already configured).
+            if (StorageRouter.IsInitialized)
             {
-                if (DatabaseService.ProjectNameExists(dialog.ProjectName))
+                try
                 {
-                    editor.WriteMessage($"\nA project named '{dialog.ProjectName}' already exists.");
+                    if (DatabaseService.ProjectNameExists(dialog.ProjectName))
+                    {
+                        editor.WriteMessage($"\nA project named '{dialog.ProjectName}' already exists.");
+                        return;
+                    }
+                }
+                catch (System.Exception ex)
+                {
+                    editor.WriteMessage($"\nError checking for existing project: {ex.Message}");
                     return;
                 }
-            }
-            catch (System.Exception ex)
-            {
-                editor.WriteMessage($"\nError checking for existing project: {ex.Message}");
-                return;
             }
 
             // Create the folder layout first so a database row never points
@@ -509,6 +530,20 @@ namespace FirstAcadPlugin
                 return;
             }
 
+            // If no provider is active yet, default to JSON mode for this project.
+            if (!StorageRouter.IsInitialized)
+            {
+                string bootstrapJson = System.IO.Path.Combine(dialog.ProjectRoot, "pro.json");
+                ProjectFileWriter.WriteNew(bootstrapJson, new Project
+                {
+                    Id = Guid.NewGuid(),
+                    Name = dialog.ProjectName,
+                    Description = dialog.Description,
+                    Directory = dialog.ProjectRoot
+                }, "json", null);
+                StorageRouter.UseJson(bootstrapJson);
+            }
+
             // Insert the project row.
             Project project;
             try
@@ -520,13 +555,27 @@ namespace FirstAcadPlugin
             }
             catch (System.Exception ex)
             {
-                editor.WriteMessage($"\nError saving project to database: {ex.Message}");
-                editor.WriteMessage("\nFolders were created but the database row was not.");
+                editor.WriteMessage($"\nError saving project: {ex.Message}");
+                editor.WriteMessage("\nFolders were created but the project record was not.");
                 return;
             }
 
             DatabaseService.SetCurrentProject(project);
             MetadataPalette.RefreshProjectInfo();
+
+            // Write / update pro.json in the project root.
+            try
+            {
+                string jsonPath = System.IO.Path.Combine(project.Directory, "pro.json");
+                ProjectFileWriter.WriteNew(jsonPath, project,
+                    StorageRouter.ActiveMode ?? "json",
+                    DatabaseService.GetConnectionString());
+                editor.WriteMessage($"\n  JSON:      {jsonPath}");
+            }
+            catch (System.Exception ex)
+            {
+                editor.WriteMessage($"\nNote: Could not write pro.json: {ex.Message}");
+            }
 
             editor.WriteMessage("\n========== Project Created ==========");
             editor.WriteMessage($"\n  Name:      {project.Name}");
@@ -1938,6 +1987,73 @@ namespace FirstAcadPlugin
             catch (System.Exception ex)
             {
                 editor.WriteMessage($"\nError generating plot: {ex.Message}");
+            }
+        }
+
+        [CommandMethod("MCExportToJson")]
+        public void ExportToJson()
+        {
+            var editor = Application.DocumentManager.MdiActiveDocument.Editor;
+
+            if (DatabaseService.CurrentProject == null)
+            {
+                editor.WriteMessage("\nNo project open. Use MCOpenProject first.");
+                return;
+            }
+
+            var dlg = new Microsoft.Win32.SaveFileDialog
+            {
+                Title = "Export Project to JSON",
+                Filter = "Project Files (*.json)|*.json|All Files (*.*)|*.*",
+                FileName = "pro.json",
+                InitialDirectory = DatabaseService.CurrentProject.Directory
+            };
+
+            if (dlg.ShowDialog() != true) return;
+
+            try
+            {
+                editor.WriteMessage("\nExporting project data...");
+                JsonMigrationService.ExportCurrentProjectToJson(dlg.FileName);
+                editor.WriteMessage($"\nExport complete: {dlg.FileName}");
+            }
+            catch (System.Exception ex)
+            {
+                editor.WriteMessage($"\nExport failed: {ex.Message}");
+            }
+        }
+
+        [CommandMethod("MCImportFromJson")]
+        public void ImportFromJson()
+        {
+            var editor = Application.DocumentManager.MdiActiveDocument.Editor;
+
+            var dlg = new Microsoft.Win32.OpenFileDialog
+            {
+                Title = "Import Project from JSON",
+                Filter = "Project Files (*.json)|*.json|All Files (*.*)|*.*",
+                CheckFileExists = true
+            };
+
+            if (dlg.ShowDialog() != true) return;
+
+            // Ask for the target connection string
+            string cs = StorageRouter.GetNpgsqlConnectionString();
+            if (string.IsNullOrEmpty(cs))
+            {
+                editor.WriteMessage("\nNo database connection set. Use MCConfigDatabase first, then retry.");
+                return;
+            }
+
+            try
+            {
+                editor.WriteMessage("\nImporting project data into database...");
+                JsonMigrationService.ImportFromJson(dlg.FileName, cs);
+                editor.WriteMessage("\nImport complete. Use MCOpenProject to open the imported project.");
+            }
+            catch (System.Exception ex)
+            {
+                editor.WriteMessage($"\nImport failed: {ex.Message}");
             }
         }
     }
