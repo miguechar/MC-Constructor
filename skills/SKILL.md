@@ -12,7 +12,7 @@ When the user requests to:
 - Add buttons, text boxes, labels, or grids in any WPF class.
 - Style or restyle existing controls.
 
-Then refer to `ui.md` to:
+Then refer to `/ui/ui.md` to:
 1. Apply appropriate brush values and control styles.
 2. Maintain dark-theme consistency across all plugin components.
 
@@ -28,4 +28,4 @@ Then refer to `ui.md` to:
 - “Change all buttons to match our dark theme.”
 
 ## References
-- [`ui.md`](./ui.md) — canonical color and style definitions.
+- [`ui.md`](./ui/ui.md) — canonical color and style definitions.
