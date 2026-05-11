@@ -364,3 +364,12 @@ Parts carry XData under the application name `MC_CONSTRUCTOR`. The following key
 | **Profiles** | MCInsertProfile, MCCreateProfilePlot |
 | **Nesting** | MCCreateNest, MCQuickNest |
 | **Tools** | MCShowMetadataPalette, MCDrawingProperties, MCMaterialLibrary, MCConfigDatabase |
+
+--- 
+
+## Recursive File Unblocking
+Use this PS command to recursively unblock files when downloading this repo:
+
+```cmd
+Get-ChildItem -Path "C:\path\to\your\folder" -Recurse -Force | Unblock-File
+```
