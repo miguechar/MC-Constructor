@@ -1,9 +1,9 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 
-namespace FirstAcadPlugin
+namespace MCConstructor
 {
     /// <summary>
     /// Popup for batch-naming parts with an optional shared material assignment.

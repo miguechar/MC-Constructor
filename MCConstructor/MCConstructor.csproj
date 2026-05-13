@@ -7,8 +7,8 @@
     <ProjectGuid>{278362E4-D550-4A73-B040-BEA4B2A8215A}</ProjectGuid>
     <OutputType>Library</OutputType>
     <AppDesignerFolder>Properties</AppDesignerFolder>
-    <RootNamespace>FirstAcadPlugin</RootNamespace>
-    <AssemblyName>FirstAcadPlugin</AssemblyName>
+    <RootNamespace>MCConstructor</RootNamespace>
+    <AssemblyName>MCConstructor</AssemblyName>
     <TargetFrameworkVersion>v4.7.2</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <Deterministic>true</Deterministic>

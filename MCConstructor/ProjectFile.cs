@@ -1,6 +1,6 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 
-namespace FirstAcadPlugin
+namespace MCConstructor
 {
     // Root object serialized to/from pro.json
     internal class ProjectFile

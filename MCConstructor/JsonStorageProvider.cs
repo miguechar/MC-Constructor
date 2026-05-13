@@ -1,10 +1,10 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using System.Text.Json;
 
-namespace FirstAcadPlugin
+namespace MCConstructor
 {
     internal class JsonStorageProvider : IStorageProvider
     {

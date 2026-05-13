@@ -1,10 +1,10 @@
-using Autodesk.AutoCAD.DatabaseServices;
+﻿using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.Geometry;
 using System;
 using System.Collections.Generic;
 using System.IO;
 
-namespace FirstAcadPlugin
+namespace MCConstructor
 {
     /// <summary>
     /// Generates a profile-plot process sheet (.dwg) containing three scaled views

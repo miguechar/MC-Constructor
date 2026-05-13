@@ -1,10 +1,10 @@
-using System;
+﻿using System;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 
-namespace FirstAcadPlugin
+namespace MCConstructor
 {
     /// <summary>
     /// Dialog for viewing and editing the MC Constructor drawing properties

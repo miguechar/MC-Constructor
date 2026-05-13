@@ -1,4 +1,4 @@
-using Autodesk.AutoCAD.DatabaseServices;
+﻿using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.Runtime;
 using System;
@@ -7,7 +7,7 @@ using System.Collections.Generic;
 // Alias to avoid conflicts
 using AcadApp = Autodesk.AutoCAD.ApplicationServices.Application;
 
-namespace FirstAcadPlugin
+namespace MCConstructor
 {
     /// <summary>
     /// Manages part properties and synchronizes with the database.

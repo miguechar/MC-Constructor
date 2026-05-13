@@ -25,10 +25,10 @@ jobs:
           dotnet-version: '8.0.x' # Match your project version
 
       - name: Restore dependencies
-        run: dotnet restore FirstAcadPlugin/FirstAcadPlugin.csproj
+        run: dotnet restore MCConstructor/MCConstructor.csproj
 
       - name: Build project
-        run: dotnet build FirstAcadPlugin/FirstAcadPlugin.csproj --configuration Release --no-restore
+        run: dotnet build MCConstructor/MCConstructor.csproj --configuration Release --no-restore
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4

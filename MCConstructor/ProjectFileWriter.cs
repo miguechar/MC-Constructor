@@ -1,9 +1,9 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Text;
 using System.Text.Json;
 
-namespace FirstAcadPlugin
+namespace MCConstructor
 {
     /// <summary>
     /// Creates or overwrites a pro.json file for a project.

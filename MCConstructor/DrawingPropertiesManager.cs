@@ -1,9 +1,9 @@
-using Autodesk.AutoCAD.DatabaseServices;
+﻿using Autodesk.AutoCAD.DatabaseServices;
 using System;
 
 using AcadApp = Autodesk.AutoCAD.ApplicationServices.Application;
 
-namespace FirstAcadPlugin
+namespace MCConstructor
 {
     /// <summary>
     /// Reads and writes the "MC Constructor" drawing properties (type,

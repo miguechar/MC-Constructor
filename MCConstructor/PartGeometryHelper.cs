@@ -1,4 +1,4 @@
-using Autodesk.AutoCAD.DatabaseServices;
+﻿using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.Geometry;
 using System;
 using System.Collections.Generic;
@@ -7,7 +7,7 @@ using System.IO;
 using AcadApp = Autodesk.AutoCAD.ApplicationServices.Application;
 using AcadDocument = Autodesk.AutoCAD.ApplicationServices.Document;
 
-namespace FirstAcadPlugin
+namespace MCConstructor
 {
     /// <summary>
     /// Helpers for capturing and recreating part geometry. The strategy is:

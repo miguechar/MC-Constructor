@@ -1,4 +1,4 @@
-using Autodesk.AutoCAD.DatabaseServices;
+﻿using Autodesk.AutoCAD.DatabaseServices;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -16,7 +16,7 @@ using WpfImage = System.Windows.Controls.Image;
 // identifier inside the class; alias the enum so the code compiles cleanly.
 using Vis = System.Windows.Visibility;
 
-namespace FirstAcadPlugin
+namespace MCConstructor
 {
     /// <summary>
     /// MC Navigator: a project-files window that lists every drawing

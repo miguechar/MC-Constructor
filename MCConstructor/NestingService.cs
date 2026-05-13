@@ -1,4 +1,4 @@
-using Autodesk.AutoCAD.ApplicationServices;
+﻿using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.Geometry;
@@ -9,7 +9,7 @@ using System.Linq;
 
 using AcadApp = Autodesk.AutoCAD.ApplicationServices.Application;
 
-namespace FirstAcadPlugin
+namespace MCConstructor
 {
     /// <summary>
     /// A part queued for nesting. Carries the source entity's bbox so the

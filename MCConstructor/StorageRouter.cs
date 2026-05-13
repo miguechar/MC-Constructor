@@ -1,6 +1,6 @@
-using System;
+﻿using System;
 
-namespace FirstAcadPlugin
+namespace MCConstructor
 {
     internal static class StorageRouter
     {

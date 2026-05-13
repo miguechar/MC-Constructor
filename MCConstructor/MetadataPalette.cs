@@ -1,4 +1,4 @@
-using Autodesk.AutoCAD.ApplicationServices;
+﻿using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.DatabaseServices;
 using Autodesk.AutoCAD.EditorInput;
 using Autodesk.AutoCAD.Runtime;
@@ -13,7 +13,7 @@ using DrawingColor = System.Drawing.Color;
 using DrawingSize = System.Drawing.Size;
 using DrawingPoint = System.Drawing.Point;
 
-namespace FirstAcadPlugin
+namespace MCConstructor
 {
     public static class MetadataPalette
     {

@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS public.drawings (
 
     -- Drawing classification (mirrors the Drawing Properties dialog).
     -- Allowed values are validated by CHECK constraint below; keep them in
-    -- sync with FirstAcadPlugin.DrawingTypes / DrawingDisciplines.
+    -- sync with MCConstructor.DrawingTypes / DrawingDisciplines.
     drawing_type VARCHAR(50) NOT NULL,
     discipline VARCHAR(50),  -- NULL when the type doesn't have a discipline
 

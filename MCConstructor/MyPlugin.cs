@@ -1,4 +1,4 @@
-using Autodesk.AutoCAD.Runtime;
+﻿using Autodesk.AutoCAD.Runtime;
 using Autodesk.Windows;
 using System;
 using System.IO;
@@ -8,7 +8,7 @@ using System.Windows.Media;
 // Alias to avoid conflicts with System.Windows.Application (WPF).
 using AcadApp = Autodesk.AutoCAD.ApplicationServices.Application;
 
-namespace FirstAcadPlugin
+namespace MCConstructor
 {
     /// <summary>
     /// Plugin entry point. Builds the "MC Constructor" ribbon tab with

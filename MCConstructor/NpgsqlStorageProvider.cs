@@ -1,8 +1,8 @@
-using Npgsql;
+﻿using Npgsql;
 using System;
 using System.Collections.Generic;
 
-namespace FirstAcadPlugin
+namespace MCConstructor
 {
     internal class NpgsqlStorageProvider : IStorageProvider
     {

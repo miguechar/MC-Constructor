@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
@@ -8,7 +8,7 @@ using System.Windows.Media;
 // it from clashing with the WPF types in the rest of this file.
 using WinForms = System.Windows.Forms;
 
-namespace FirstAcadPlugin
+namespace MCConstructor
 {
     /// <summary>
     /// Dialog used by MCCreateProject. Collects the project name,
