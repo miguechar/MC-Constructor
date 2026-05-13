@@ -94,7 +94,7 @@ namespace MCConstructor
             _partNameBox = new TextBox
             {
                 Text = currentPartName ?? "",
-                Height = 28, Padding = new Thickness(6, 4, 6, 4),
+                Height = 28, Padding = new Thickness(6, 3, 6, 3),
                 Background = Brush(37, 37, 38), Foreground = Brushes.White,
                 BorderBrush = Brush(67, 67, 70), BorderThickness = new Thickness(1),
                 FontSize = 13, Margin = new Thickness(0, 4, 0, 8),
@@ -231,9 +231,9 @@ namespace MCConstructor
         {
             var b = new Button
             {
-                Content = text, Height = 30, Padding = new Thickness(16, 0, 16, 0),
-                Margin = new Thickness(8, 0, 0, 0),
-                Background = isDefault ? Brush(0, 122, 204) : Brush(60, 60, 65),
+                Content = text, Height = 28, Padding = new Thickness(12, 0, 12, 0),
+                Margin = new Thickness(6, 0, 0, 0),
+                Background = isDefault ? Brush(0, 122, 204) : Brush(70, 70, 75),
                 Foreground = Brushes.White, BorderThickness = new Thickness(0),
                 FontWeight = isDefault ? FontWeights.SemiBold : FontWeights.Normal,
                 IsDefault = isDefault, IsCancel = !isDefault,

@@ -28,6 +28,7 @@ namespace MCConstructor
             ResizeMode = ResizeMode.CanResize;
             MinWidth = 420;
             MinHeight = 500;
+            Background = D(45, 45, 48);
 
             var mainGrid = new Grid { Margin = new Thickness(16) };
 
@@ -51,6 +52,7 @@ namespace MCConstructor
                 Text = "Database Connection String:",
                 FontWeight = FontWeights.Bold,
                 FontSize = 13,
+                Foreground = D(200, 200, 200),
                 Margin = new Thickness(0, 0, 0, 6)
             };
             Grid.SetRow(connLabel, row++);
@@ -60,12 +62,14 @@ namespace MCConstructor
             {
                 Text = "Host=localhost;Port=5432;Database=your_db;Username=postgres;Password=your_password",
                 FontSize = 12,
-                Padding = new Thickness(8, 6, 8, 6),
+                Padding = new Thickness(6, 3, 6, 3),
                 Margin = new Thickness(0, 0, 0, 12),
                 TextWrapping = TextWrapping.Wrap,
                 AcceptsReturn = false,
                 Height = 60,
-                VerticalScrollBarVisibility = ScrollBarVisibility.Auto
+                VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                Background = D(37, 37, 38), Foreground = Brushes.White,
+                BorderBrush = D(67, 67, 70), BorderThickness = new Thickness(1),
             };
             Grid.SetRow(connectionStringTextBox, row++);
             mainGrid.Children.Add(connectionStringTextBox);
@@ -74,12 +78,13 @@ namespace MCConstructor
             {
                 Content = "Connect & Load Projects",
                 FontSize = 12,
-                Padding = new Thickness(16, 8, 16, 8),
+                Height = 28, Padding = new Thickness(12, 0, 12, 0),
                 HorizontalAlignment = HorizontalAlignment.Left,
                 Margin = new Thickness(0, 0, 0, 12),
-                Background = new SolidColorBrush(Color.FromRgb(0, 120, 200)),
+                Background = D(0, 122, 204),
                 Foreground = Brushes.White,
-                BorderThickness = new Thickness(0)
+                BorderThickness = new Thickness(0),
+                FontWeight = FontWeights.SemiBold,
             };
             connectButton.Click += ConnectButton_Click;
             Grid.SetRow(connectButton, row++);
@@ -89,7 +94,7 @@ namespace MCConstructor
             {
                 Text = "Enter your database connection string and click Connect",
                 FontSize = 12,
-                Foreground = Brushes.Gray,
+                Foreground = D(160, 160, 165),
                 TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(0, 0, 0, 12)
             };
@@ -103,15 +108,15 @@ namespace MCConstructor
                 HorizontalAlignment = HorizontalAlignment.Stretch,
                 Margin = new Thickness(0, 4, 0, 12)
             };
-            dividerPanel.Children.Add(new Separator { Width = 200, VerticalAlignment = VerticalAlignment.Center });
+            dividerPanel.Children.Add(new Separator { Width = 200, VerticalAlignment = VerticalAlignment.Center, Background = D(67, 67, 70) });
             dividerPanel.Children.Add(new TextBlock
             {
                 Text = "  —  OR  —  ",
                 FontSize = 12,
-                Foreground = Brushes.Gray,
+                Foreground = D(160, 160, 165),
                 VerticalAlignment = VerticalAlignment.Center
             });
-            dividerPanel.Children.Add(new Separator { Width = 200, VerticalAlignment = VerticalAlignment.Center });
+            dividerPanel.Children.Add(new Separator { Width = 200, VerticalAlignment = VerticalAlignment.Center, Background = D(67, 67, 70) });
             Grid.SetRow(dividerPanel, row++);
             mainGrid.Children.Add(dividerPanel);
 
@@ -121,6 +126,7 @@ namespace MCConstructor
                 Text = "Open Project File (.json):",
                 FontWeight = FontWeights.Bold,
                 FontSize = 13,
+                Foreground = D(200, 200, 200),
                 Margin = new Thickness(0, 0, 0, 6)
             };
             Grid.SetRow(jsonLabel, row++);
@@ -135,8 +141,10 @@ namespace MCConstructor
             {
                 Content = "Browse...",
                 FontSize = 12,
-                Padding = new Thickness(12, 6, 12, 6),
-                Margin = new Thickness(0, 0, 8, 0)
+                Height = 28, Padding = new Thickness(12, 0, 12, 0),
+                Margin = new Thickness(0, 0, 8, 0),
+                Background = D(70, 70, 75), Foreground = Brushes.White,
+                BorderThickness = new Thickness(0),
             };
             browseButton.Click += BrowseButton_Click;
             Grid.SetColumn(browseButton, 0);
@@ -145,9 +153,10 @@ namespace MCConstructor
             jsonPathTextBox = new TextBox
             {
                 FontSize = 12,
-                Padding = new Thickness(8, 6, 8, 6),
+                Padding = new Thickness(6, 3, 6, 3),
                 IsReadOnly = true,
-                Background = new SolidColorBrush(Color.FromRgb(245, 245, 245)),
+                Background = D(37, 37, 38), Foreground = D(160, 160, 165),
+                BorderBrush = D(67, 67, 70), BorderThickness = new Thickness(1),
                 VerticalAlignment = VerticalAlignment.Center
             };
             Grid.SetColumn(jsonPathTextBox, 1);
@@ -160,12 +169,13 @@ namespace MCConstructor
             {
                 Content = "Open Project",
                 FontSize = 12,
-                Padding = new Thickness(16, 8, 16, 8),
+                Height = 28, Padding = new Thickness(12, 0, 12, 0),
                 HorizontalAlignment = HorizontalAlignment.Left,
                 Margin = new Thickness(0, 0, 0, 16),
-                Background = new SolidColorBrush(Color.FromRgb(0, 150, 80)),
+                Background = D(0, 122, 204),
                 Foreground = Brushes.White,
-                BorderThickness = new Thickness(0)
+                BorderThickness = new Thickness(0),
+                FontWeight = FontWeights.SemiBold,
             };
             openJsonButton.Click += OpenJsonButton_Click;
             Grid.SetRow(openJsonButton, row++);
@@ -177,6 +187,7 @@ namespace MCConstructor
                 Text = "Select a Project:",
                 FontWeight = FontWeights.Bold,
                 FontSize = 13,
+                Foreground = D(200, 200, 200),
                 Margin = new Thickness(0, 0, 0, 6)
             };
             Grid.SetRow(projectsLabel, row++);
@@ -185,7 +196,9 @@ namespace MCConstructor
             projectListBox = new ListBox
             {
                 FontSize = 12,
-                Margin = new Thickness(0, 0, 0, 16)
+                Margin = new Thickness(0, 0, 0, 16),
+                Background = D(37, 37, 38), Foreground = Brushes.White,
+                BorderBrush = D(67, 67, 70), BorderThickness = new Thickness(1),
             };
             projectListBox.MouseDoubleClick += (s, e) =>
             {
@@ -205,9 +218,11 @@ namespace MCConstructor
             {
                 Content = "Select Project",
                 FontSize = 12,
-                Padding = new Thickness(20, 8, 20, 8),
-                Margin = new Thickness(0, 0, 10, 0),
-                IsDefault = true
+                Height = 28, Padding = new Thickness(12, 0, 12, 0),
+                Margin = new Thickness(0, 0, 6, 0),
+                IsDefault = true,
+                Background = D(0, 122, 204), Foreground = Brushes.White,
+                BorderThickness = new Thickness(0), FontWeight = FontWeights.SemiBold,
             };
             selectButton.Click += (s, e) => SelectProject();
             buttonPanel.Children.Add(selectButton);
@@ -216,8 +231,10 @@ namespace MCConstructor
             {
                 Content = "Cancel",
                 FontSize = 12,
-                Padding = new Thickness(20, 8, 20, 8),
-                IsCancel = true
+                Height = 28, Padding = new Thickness(12, 0, 12, 0),
+                IsCancel = true,
+                Background = D(70, 70, 75), Foreground = Brushes.White,
+                BorderThickness = new Thickness(0),
             };
             cancelButton.Click += (s, e) => { DialogResult = false; Close(); };
             buttonPanel.Children.Add(cancelButton);
@@ -227,6 +244,9 @@ namespace MCConstructor
 
             Content = mainGrid;
         }
+
+        private static SolidColorBrush D(byte r, byte g, byte b)
+            => new SolidColorBrush(Color.FromRgb(r, g, b));
 
         private void BrowseButton_Click(object sender, RoutedEventArgs e)
         {
@@ -254,7 +274,7 @@ namespace MCConstructor
             if (pf?.Project == null)
             {
                 statusText.Text = "Could not read the selected file. Make sure it is a valid pro.json.";
-                statusText.Foreground = Brushes.Red;
+                statusText.Foreground = new SolidColorBrush(Color.FromRgb(220, 70, 70));
                 return;
             }
 
@@ -280,7 +300,7 @@ namespace MCConstructor
                 if (pf.Database == null)
                 {
                     statusText.Text = "The project file has no database credentials. Enter the connection string manually above.";
-                    statusText.Foreground = Brushes.Orange;
+                    statusText.Foreground = new SolidColorBrush(Color.FromRgb(220, 150, 0));
                     return;
                 }
 
@@ -288,7 +308,7 @@ namespace MCConstructor
                 try
                 {
                     statusText.Text = "Connecting...";
-                    statusText.Foreground = Brushes.Gray;
+                    statusText.Foreground = D(160, 160, 165);
 
                     StorageRouter.UseNpgsql(cs);
 
@@ -296,7 +316,7 @@ namespace MCConstructor
                     if (!DatabaseService.TestConnection(out connErr))
                     {
                         statusText.Text = $"Connection failed:\n{connErr}";
-                        statusText.Foreground = Brushes.Red;
+                        statusText.Foreground = new SolidColorBrush(Color.FromRgb(220, 70, 70));
                         return;
                     }
 
@@ -324,19 +344,19 @@ namespace MCConstructor
                     else
                     {
                         statusText.Text = $"Connected! Found {projects.Count} project(s). Select one below.";
-                        statusText.Foreground = new SolidColorBrush(Color.FromRgb(0, 150, 0));
+                        statusText.Foreground = new SolidColorBrush(Color.FromRgb(0, 180, 80));
                     }
                 }
                 catch (Exception ex)
                 {
                     statusText.Text = $"Error:\n{ex.Message}";
-                    statusText.Foreground = Brushes.Red;
+                    statusText.Foreground = new SolidColorBrush(Color.FromRgb(220, 70, 70));
                 }
             }
             else
             {
                 statusText.Text = $"Unknown storageMode '{pf.StorageMode}' in the project file.";
-                statusText.Foreground = Brushes.Red;
+                statusText.Foreground = new SolidColorBrush(Color.FromRgb(220, 70, 70));
             }
         }
 
@@ -345,7 +365,7 @@ namespace MCConstructor
             try
             {
                 statusText.Text = "Connecting...";
-                statusText.Foreground = Brushes.Gray;
+                statusText.Foreground = D(160, 160, 165);
 
                 DatabaseService.SetConnectionString(connectionStringTextBox.Text);
 
@@ -353,7 +373,7 @@ namespace MCConstructor
                 if (!DatabaseService.TestConnection(out errorMessage))
                 {
                     statusText.Text = $"Connection failed:\n{errorMessage}";
-                    statusText.Foreground = Brushes.Red;
+                    statusText.Foreground = new SolidColorBrush(Color.FromRgb(220, 70, 70));
                     return;
                 }
 
@@ -368,18 +388,18 @@ namespace MCConstructor
                 if (projects.Count == 0)
                 {
                     statusText.Text = "Connected! But no projects found in the database.\nMake sure your 'projects' table has data.";
-                    statusText.Foreground = Brushes.Orange;
+                    statusText.Foreground = new SolidColorBrush(Color.FromRgb(220, 150, 0));
                 }
                 else
                 {
                     statusText.Text = $"Connected! Found {projects.Count} project(s). Select one below.";
-                    statusText.Foreground = new SolidColorBrush(Color.FromRgb(0, 150, 0));
+                    statusText.Foreground = new SolidColorBrush(Color.FromRgb(0, 180, 80));
                 }
             }
             catch (Exception ex)
             {
                 statusText.Text = $"Error:\n{ex.Message}";
-                statusText.Foreground = Brushes.Red;
+                statusText.Foreground = new SolidColorBrush(Color.FromRgb(220, 70, 70));
             }
         }
 
@@ -414,6 +434,7 @@ namespace MCConstructor
             Height = 380;
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
             ResizeMode = ResizeMode.NoResize;
+            Background = D2(45, 45, 48);
 
             var mainStack = new StackPanel { Margin = new Thickness(20) };
 
@@ -442,8 +463,10 @@ namespace MCConstructor
             passwordBox = new PasswordBox
             {
                 FontSize = 12,
-                Padding = new Thickness(8, 6, 8, 6),
-                Margin = new Thickness(0, 0, 0, 12)
+                Padding = new Thickness(6, 3, 6, 3),
+                Margin = new Thickness(0, 0, 0, 12),
+                Background = D2(37, 37, 38), Foreground = Brushes.White,
+                BorderBrush = D2(67, 67, 70), BorderThickness = new Thickness(1),
             };
             mainStack.Children.Add(passwordBox);
 
@@ -452,6 +475,7 @@ namespace MCConstructor
             {
                 Text = "",
                 FontSize = 11,
+                Foreground = D2(160, 160, 165),
                 TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(0, 0, 0, 12)
             };
@@ -464,15 +488,34 @@ namespace MCConstructor
                 HorizontalAlignment = HorizontalAlignment.Right
             };
 
-            var testBtn = new Button { Content = "Test", Padding = new Thickness(16, 6, 16, 6), Margin = new Thickness(0, 0, 8, 0) };
+            var testBtn = new Button
+            {
+                Content = "Test", Height = 28, Padding = new Thickness(12, 0, 12, 0),
+                Margin = new Thickness(0, 0, 6, 0),
+                Background = D2(70, 70, 75), Foreground = Brushes.White,
+                BorderThickness = new Thickness(0),
+            };
             testBtn.Click += TestButton_Click;
             buttonPanel.Children.Add(testBtn);
 
-            var saveBtn = new Button { Content = "Save", Padding = new Thickness(16, 6, 16, 6), Margin = new Thickness(0, 0, 8, 0), IsDefault = true };
+            var saveBtn = new Button
+            {
+                Content = "Save", Height = 28, Padding = new Thickness(12, 0, 12, 0),
+                Margin = new Thickness(0, 0, 6, 0),
+                IsDefault = true,
+                Background = D2(0, 122, 204), Foreground = Brushes.White,
+                BorderThickness = new Thickness(0), FontWeight = FontWeights.SemiBold,
+            };
             saveBtn.Click += SaveButton_Click;
             buttonPanel.Children.Add(saveBtn);
 
-            var cancelBtn = new Button { Content = "Cancel", Padding = new Thickness(16, 6, 16, 6), IsCancel = true };
+            var cancelBtn = new Button
+            {
+                Content = "Cancel", Height = 28, Padding = new Thickness(12, 0, 12, 0),
+                IsCancel = true,
+                Background = D2(70, 70, 75), Foreground = Brushes.White,
+                BorderThickness = new Thickness(0),
+            };
             cancelBtn.Click += (s, e) => { DialogResult = false; Close(); };
             buttonPanel.Children.Add(cancelBtn);
 
@@ -480,12 +523,16 @@ namespace MCConstructor
             Content = mainStack;
         }
 
+        private static SolidColorBrush D2(byte r, byte g, byte b)
+            => new SolidColorBrush(Color.FromRgb(r, g, b));
+
         private TextBlock MakeLabel(string text)
         {
             return new TextBlock
             {
                 Text = text,
                 FontSize = 12,
+                Foreground = D2(200, 200, 200),
                 Margin = new Thickness(0, 0, 0, 4)
             };
         }
@@ -496,8 +543,10 @@ namespace MCConstructor
             {
                 Text = defaultText,
                 FontSize = 12,
-                Padding = new Thickness(8, 6, 8, 6),
-                Margin = new Thickness(0, 0, 0, 12)
+                Padding = new Thickness(6, 3, 6, 3),
+                Margin = new Thickness(0, 0, 0, 12),
+                Background = D2(37, 37, 38), Foreground = Brushes.White,
+                BorderBrush = D2(67, 67, 70), BorderThickness = new Thickness(1),
             };
         }
 
@@ -506,7 +555,7 @@ namespace MCConstructor
             try
             {
                 statusText.Text = "Testing...";
-                statusText.Foreground = Brushes.Gray;
+                statusText.Foreground = D2(160, 160, 165);
 
                 DatabaseService.SetConnectionString(
                     hostTextBox.Text,
@@ -520,18 +569,18 @@ namespace MCConstructor
                 if (DatabaseService.TestConnection(out errorMessage))
                 {
                     statusText.Text = "Connection successful!";
-                    statusText.Foreground = new SolidColorBrush(Color.FromRgb(0, 150, 0));
+                    statusText.Foreground = new SolidColorBrush(Color.FromRgb(0, 180, 80));
                 }
                 else
                 {
                     statusText.Text = $"Failed: {errorMessage}";
-                    statusText.Foreground = Brushes.Red;
+                    statusText.Foreground = new SolidColorBrush(Color.FromRgb(220, 70, 70));
                 }
             }
             catch (Exception ex)
             {
                 statusText.Text = $"Error: {ex.Message}";
-                statusText.Foreground = Brushes.Red;
+                statusText.Foreground = new SolidColorBrush(Color.FromRgb(220, 70, 70));
             }
         }
 

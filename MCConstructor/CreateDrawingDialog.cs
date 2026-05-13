@@ -83,7 +83,7 @@ namespace MCConstructor
             descriptionBox = new TextBox
             {
                 FontSize = 12,
-                Padding = new Thickness(6, 4, 6, 4),
+                Padding = new Thickness(6, 3, 6, 3),
                 Margin = new Thickness(0, 0, 0, 12),
                 Height = 50,
                 AcceptsReturn = true,
@@ -122,8 +122,8 @@ namespace MCConstructor
             var createBtn = new Button
             {
                 Content = "Create",
-                Padding = new Thickness(20, 6, 20, 6),
-                Margin = new Thickness(0, 0, 8, 0),
+                Height = 28, Padding = new Thickness(12, 0, 12, 0),
+                Margin = new Thickness(0, 0, 6, 0),
                 IsDefault = true,
                 Background = D(0, 122, 204), Foreground = Brushes.White,
                 BorderThickness = new Thickness(0),
@@ -135,9 +135,9 @@ namespace MCConstructor
             var cancelBtn = new Button
             {
                 Content = "Cancel",
-                Padding = new Thickness(20, 6, 20, 6),
+                Height = 28, Padding = new Thickness(12, 0, 12, 0),
                 IsCancel = true,
-                Background = D(60, 60, 65), Foreground = Brushes.White,
+                Background = D(70, 70, 75), Foreground = Brushes.White,
                 BorderThickness = new Thickness(0),
             };
             cancelBtn.Click += (s, e) => { DialogResult = false; Close(); };
@@ -322,7 +322,7 @@ namespace MCConstructor
 
         private static ComboBox DarkCombo(int fontSize) => new ComboBox
         {
-            FontSize = fontSize, Padding = new Thickness(6, 4, 6, 4),
+            FontSize = fontSize, Padding = new Thickness(6, 3, 6, 3),
             Margin = new Thickness(0, 0, 0, 12),
             Background = D(37, 37, 38), Foreground = Brushes.White,
             BorderBrush = D(67, 67, 70), BorderThickness = new Thickness(1),
@@ -330,7 +330,7 @@ namespace MCConstructor
 
         private static TextBox DarkBox(int fontSize) => new TextBox
         {
-            FontSize = fontSize, Padding = new Thickness(6, 4, 6, 4),
+            FontSize = fontSize, Padding = new Thickness(6, 3, 6, 3),
             Margin = new Thickness(0, 0, 0, 12),
             Background = D(37, 37, 38), Foreground = Brushes.White,
             BorderBrush = D(67, 67, 70), BorderThickness = new Thickness(1),

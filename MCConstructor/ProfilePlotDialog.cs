@@ -91,16 +91,19 @@ namespace MCConstructor
             };
             var ok = new Button
             {
-                Content = "Create", Width = 80, Height = 28,
-                Margin = new Thickness(0, 0, 8, 0), IsDefault = true,
+                Content = "Create", Height = 28,
+                Padding = new Thickness(12, 0, 12, 0),
+                Margin = new Thickness(0, 0, 6, 0), IsDefault = true,
                 Background = D(0, 122, 204), Foreground = Brushes.White,
                 BorderThickness = new Thickness(0), FontWeight = FontWeights.SemiBold,
             };
             ok.Click += (s, e) => TryAccept();
             var cancel = new Button
             {
-                Content = "Cancel", Width = 80, Height = 28, IsCancel = true,
-                Background = D(60, 60, 65), Foreground = Brushes.White,
+                Content = "Cancel", Height = 28,
+                Padding = new Thickness(12, 0, 12, 0),
+                IsCancel = true,
+                Background = D(70, 70, 75), Foreground = Brushes.White,
                 BorderThickness = new Thickness(0),
             };
             cancel.Click += (s, e) => { DialogResult = false; Close(); };
@@ -172,9 +175,10 @@ namespace MCConstructor
             });
             box = new TextBox
             {
-                Width = 200, Height = 24,
+                Width = 200, Height = 28,
                 Text = defaultText,
                 VerticalAlignment = VerticalAlignment.Center,
+                Padding = new Thickness(6, 3, 6, 3),
                 Background = D(37, 37, 38), Foreground = Brushes.White,
                 BorderBrush = D(67, 67, 70), BorderThickness = new Thickness(1),
             };

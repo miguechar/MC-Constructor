@@ -56,6 +56,7 @@ namespace MCConstructor
             MinWidth = 700;
             MinHeight = 480;
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
+            Background = D(45, 45, 48);
 
             BuildUI();
             LoadDrawings();
@@ -73,7 +74,7 @@ namespace MCConstructor
             {
                 Text = $"Project: {_project.Name}\nRoot: {_project.Directory}",
                 FontSize = 12,
-                Foreground = Brushes.Gray,
+                Foreground = D(160, 160, 165),
                 Margin = new Thickness(0, 0, 0, 8),
                 TextWrapping = TextWrapping.Wrap
             };
@@ -86,7 +87,13 @@ namespace MCConstructor
             body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(6) });
             body.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(2, GridUnitType.Star) });
 
-            tree = new TreeView { FontSize = 12 };
+            tree = new TreeView
+            {
+                FontSize = 12,
+                Background = D(37, 37, 38),
+                Foreground = Brushes.White,
+                BorderBrush = D(67, 67, 70),
+            };
             tree.SelectedItemChanged += Tree_SelectedItemChanged;
             Grid.SetColumn(tree, 0);
             body.Children.Add(tree);
@@ -107,7 +114,7 @@ namespace MCConstructor
             {
                 Text = "Select a drawing to preview.",
                 FontSize = 12,
-                Foreground = Brushes.Gray,
+                Foreground = D(160, 160, 165),
                 TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(8, 8, 8, 8),
                 Visibility = Vis.Visible
@@ -124,9 +131,9 @@ namespace MCConstructor
             // the thumbnail has a visible frame.
             var previewBorder = new Border
             {
-                BorderBrush = Brushes.LightGray,
+                BorderBrush = D(67, 67, 70),
                 BorderThickness = new Thickness(1),
-                Background = new SolidColorBrush(Color.FromRgb(248, 248, 248)),
+                Background = D(37, 37, 38),
                 Margin = new Thickness(0, 0, 0, 8)
             };
             var previewGrid = new Grid();
@@ -138,7 +145,7 @@ namespace MCConstructor
             metaText = new TextBlock
             {
                 FontSize = 11,
-                Foreground = Brushes.DimGray,
+                Foreground = D(160, 160, 165),
                 TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(0, 0, 0, 8)
             };
@@ -169,13 +176,14 @@ namespace MCConstructor
             openButton = new Button
             {
                 Content = "Open",
-                Padding = new Thickness(20, 6, 20, 6),
-                Margin = new Thickness(0, 0, 8, 0),
+                Height = 28, Padding = new Thickness(12, 0, 12, 0),
+                Margin = new Thickness(0, 0, 6, 0),
                 IsDefault = true,
                 IsEnabled = false,
-                Background = new SolidColorBrush(Color.FromRgb(0, 120, 200)),
+                Background = D(0, 122, 204),
                 Foreground = Brushes.White,
-                BorderThickness = new Thickness(0)
+                BorderThickness = new Thickness(0),
+                FontWeight = FontWeights.SemiBold,
             };
             openButton.Click += OpenButton_Click;
             btnPanel.Children.Add(openButton);
@@ -183,9 +191,9 @@ namespace MCConstructor
             var refreshBtn = new Button
             {
                 Content = "Refresh",
-                Padding = new Thickness(16, 6, 16, 6),
-                Margin = new Thickness(0, 0, 8, 0),
-                Background = new SolidColorBrush(Color.FromRgb(70, 70, 75)),
+                Height = 28, Padding = new Thickness(12, 0, 12, 0),
+                Margin = new Thickness(0, 0, 6, 0),
+                Background = D(70, 70, 75),
                 Foreground = Brushes.White,
                 BorderThickness = new Thickness(0),
             };
@@ -195,9 +203,9 @@ namespace MCConstructor
             var closeBtn = new Button
             {
                 Content = "Close",
-                Padding = new Thickness(16, 6, 16, 6),
+                Height = 28, Padding = new Thickness(12, 0, 12, 0),
                 IsCancel = true,
-                Background = new SolidColorBrush(Color.FromRgb(60, 60, 65)),
+                Background = D(70, 70, 75),
                 Foreground = Brushes.White,
                 BorderThickness = new Thickness(0),
             };
@@ -210,7 +218,7 @@ namespace MCConstructor
             statusText = new TextBlock
             {
                 FontSize = 11,
-                Foreground = Brushes.Gray,
+                Foreground = D(160, 160, 165),
                 VerticalAlignment = VerticalAlignment.Center,
                 TextWrapping = TextWrapping.Wrap
             };
@@ -240,7 +248,7 @@ namespace MCConstructor
             catch (System.Exception ex)
             {
                 statusText.Text = $"Error loading drawings: {ex.Message}";
-                statusText.Foreground = Brushes.Red;
+                statusText.Foreground = D(220, 70, 70);
                 return;
             }
 
@@ -297,14 +305,14 @@ namespace MCConstructor
             if (existing.Count == 0)
             {
                 statusText.Text = "No drawings found in this project.";
-                statusText.Foreground = Brushes.Gray;
+                statusText.Foreground = D(160, 160, 165);
             }
             else
             {
                 statusText.Text = hidden > 0
                     ? $"{existing.Count} drawing(s); {hidden} skipped (missing on disk)."
                     : $"{existing.Count} drawing(s).";
-                statusText.Foreground = Brushes.Gray;
+                statusText.Foreground = D(160, 160, 165);
             }
         }
 
@@ -513,6 +521,9 @@ namespace MCConstructor
                 return img;
             }
         }
+
+        private static SolidColorBrush D(byte r, byte g, byte b)
+            => new SolidColorBrush(Color.FromRgb(r, g, b));
 
         private static bool IsUnder(string filePath, string root)
         {

@@ -51,7 +51,7 @@ namespace MCConstructor
             {
                 Height = 28,
                 Margin = new Thickness(0, 4, 0, 12),
-                Padding = new Thickness(6, 4, 6, 4),
+                Padding = new Thickness(6, 3, 6, 3),
                 Background = new SolidColorBrush(Color.FromRgb(37, 37, 38)),
                 Foreground = Brushes.White,
                 BorderBrush = new SolidColorBrush(Color.FromRgb(67, 67, 70)),
@@ -92,8 +92,9 @@ namespace MCConstructor
             };
             var okBtn = new Button
             {
-                Content = "OK", Width = 80, Height = 28,
-                Margin = new Thickness(0, 0, 8, 0),
+                Content = "OK", Height = 28,
+                Padding = new Thickness(12, 0, 12, 0),
+                Margin = new Thickness(0, 0, 6, 0),
                 Background = new SolidColorBrush(Color.FromRgb(0, 122, 204)),
                 Foreground = Brushes.White, BorderThickness = new Thickness(0),
                 FontWeight = FontWeights.SemiBold, IsDefault = true,
@@ -103,8 +104,9 @@ namespace MCConstructor
 
             var cancelBtn = new Button
             {
-                Content = "Cancel", Width = 80, Height = 28,
-                Background = new SolidColorBrush(Color.FromRgb(60, 60, 65)),
+                Content = "Cancel", Height = 28,
+                Padding = new Thickness(12, 0, 12, 0),
+                Background = new SolidColorBrush(Color.FromRgb(70, 70, 75)),
                 Foreground = Brushes.White, BorderThickness = new Thickness(0),
                 IsCancel = true,
             };
