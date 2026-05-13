@@ -155,7 +155,7 @@ namespace MCConstructor
                 Margin = new Thickness(0, 14, 0, 0),
             };
             var ok = DlgBtn("Create Nesting", true,  Brush(0, 122, 204), OnOk);
-            var cancel = DlgBtn("Cancel",     false, Brush(60, 60, 65),  (s, e) => { DialogResult = false; Close(); });
+            var cancel = DlgBtn("Cancel",     false, Brush(70, 70, 75),  (s, e) => { DialogResult = false; Close(); });
             btnRow.Children.Add(cancel);
             btnRow.Children.Add(ok);
             Set(root, btnRow, 5);
@@ -368,7 +368,7 @@ namespace MCConstructor
             box = new TextBox
             {
                 Text = defaultValue, Height = 28,
-                Padding = new Thickness(8, 4, 8, 4),
+                Padding = new Thickness(6, 3, 6, 3),
                 Background = Brush(37, 37, 38),
                 Foreground = Brushes.White,
                 BorderBrush = Brush(67, 67, 70),
@@ -393,8 +393,8 @@ namespace MCConstructor
         {
             var b = new Button
             {
-                Content = text, Height = 32, Padding = new Thickness(16, 0, 16, 0),
-                Margin = new Thickness(8, 0, 0, 0),
+                Content = text, Height = 28, Padding = new Thickness(12, 0, 12, 0),
+                Margin = new Thickness(6, 0, 0, 0),
                 Background = bg, Foreground = Brushes.White,
                 BorderThickness = new Thickness(0),
                 FontWeight = isDefault ? FontWeights.SemiBold : FontWeights.Normal,

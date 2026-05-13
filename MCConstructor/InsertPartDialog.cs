@@ -82,7 +82,7 @@ namespace MCConstructor
             {
                 Name = "DetailsLabel",
                 TextWrapping = TextWrapping.Wrap,
-                Foreground = System.Windows.Media.Brushes.Gray
+                Foreground = new SolidColorBrush(Color.FromRgb(160, 160, 165))
             };
             detailsPanel.Children.Add(detailsLabel);
 
@@ -111,8 +111,8 @@ namespace MCConstructor
             var okButton = new Button
             {
                 Content = "Insert",
-                Width = 80, Height = 28,
-                Margin = new Thickness(0, 0, 10, 0),
+                Height = 28, Padding = new Thickness(12, 0, 12, 0),
+                Margin = new Thickness(0, 0, 6, 0),
                 IsDefault = true,
                 Background = new SolidColorBrush(Color.FromRgb(0, 122, 204)),
                 Foreground = Brushes.White, BorderThickness = new Thickness(0),
@@ -125,9 +125,9 @@ namespace MCConstructor
             var cancelButton = new Button
             {
                 Content = "Cancel",
-                Width = 80, Height = 28,
+                Height = 28, Padding = new Thickness(12, 0, 12, 0),
                 IsCancel = true,
-                Background = new SolidColorBrush(Color.FromRgb(60, 60, 65)),
+                Background = new SolidColorBrush(Color.FromRgb(70, 70, 75)),
                 Foreground = Brushes.White, BorderThickness = new Thickness(0),
             };
             cancelButton.Click += CancelButton_Click;

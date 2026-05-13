@@ -96,9 +96,10 @@ namespace MCConstructor
 
             _lengthBox = new TextBox
             {
-                Width = 120, Height = 24,
+                Width = 120, Height = 28,
                 Text = "1000",
                 VerticalAlignment = VerticalAlignment.Center,
+                Padding = new Thickness(6, 3, 6, 3),
                 Background = D(37, 37, 38), Foreground = Brushes.White,
                 BorderBrush = D(67, 67, 70), BorderThickness = new Thickness(1),
             };
@@ -127,8 +128,8 @@ namespace MCConstructor
             var okBtn = new Button
             {
                 Content = "Insert",
-                Width = 80, Height = 28,
-                Margin = new Thickness(0, 0, 8, 0),
+                Height = 28, Padding = new Thickness(12, 0, 12, 0),
+                Margin = new Thickness(0, 0, 6, 0),
                 IsDefault = true,
                 Background = D(0, 122, 204), Foreground = Brushes.White,
                 BorderThickness = new Thickness(0), FontWeight = FontWeights.SemiBold,
@@ -139,9 +140,9 @@ namespace MCConstructor
             var cancelBtn = new Button
             {
                 Content = "Cancel",
-                Width = 80, Height = 28,
+                Height = 28, Padding = new Thickness(12, 0, 12, 0),
                 IsCancel = true,
-                Background = D(60, 60, 65), Foreground = Brushes.White,
+                Background = D(70, 70, 75), Foreground = Brushes.White,
                 BorderThickness = new Thickness(0),
             };
             cancelBtn.Click += (s, e) => { DialogResult = false; Close(); };

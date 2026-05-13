@@ -432,7 +432,8 @@ namespace MCConstructor
             buttonPanel.Controls.Add(_openBtn);
 
             _saveBtn = MakeButton("Save Parts", 116, 5, 90);
-            _saveBtn.BackColor = DrawingColor.FromArgb(40, 120, 40);
+            _saveBtn.BackColor = DrawingColor.FromArgb(0, 102, 180);
+            _saveBtn.FlatAppearance.MouseOverBackColor = DrawingColor.FromArgb(0, 122, 204);
             _saveBtn.Enabled = false;
             _saveBtn.Click += OnSaveAll;
             buttonPanel.Controls.Add(_saveBtn);

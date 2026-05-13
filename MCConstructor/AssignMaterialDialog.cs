@@ -127,9 +127,9 @@ namespace MCConstructor
         {
             var b = new Button
             {
-                Content = text, Height = 30, Padding = new Thickness(16, 0, 16, 0),
-                Margin = new Thickness(8, 0, 0, 0),
-                Background = isDefault ? Brush(0, 122, 204) : Brush(60, 60, 65),
+                Content = text, Height = 28, Padding = new Thickness(12, 0, 12, 0),
+                Margin = new Thickness(6, 0, 0, 0),
+                Background = isDefault ? Brush(0, 122, 204) : Brush(70, 70, 75),
                 Foreground = Brushes.White, BorderThickness = new Thickness(0),
                 FontWeight = isDefault ? FontWeights.SemiBold : FontWeights.Normal,
                 IsDefault = isDefault, IsCancel = !isDefault,

@@ -129,10 +129,11 @@ namespace MCConstructor
             // ── Close button ─────────────────────────────────────────────────
             var closeBtn = new Button
             {
-                Content = "Close", Width = 90, Height = 28,
+                Content = "Close", Height = 28,
+                Padding = new Thickness(12, 0, 12, 0),
                 Margin = new Thickness(0, 6, 8, 8),
                 HorizontalAlignment = HorizontalAlignment.Right,
-                Background = DarkBrush(60, 60, 65), Foreground = Brushes.White,
+                Background = DarkBrush(70, 70, 75), Foreground = Brushes.White,
                 BorderThickness = new Thickness(0), IsCancel = true,
             };
             closeBtn.Click += (s, e) => Close();
@@ -459,8 +460,10 @@ namespace MCConstructor
         {
             var b = new Button
             {
-                Content = text, Width = 80, Height = 28, Margin = new Thickness(0, 0, 8, 0),
-                Background = isDefault ? DarkBrush(0, 122, 204) : DarkBrush(60, 60, 65),
+                Content = text, Height = 28,
+                Padding = new Thickness(12, 0, 12, 0),
+                Margin = new Thickness(0, 0, 6, 0),
+                Background = isDefault ? DarkBrush(0, 122, 204) : DarkBrush(70, 70, 75),
                 Foreground = Brushes.White, BorderThickness = new Thickness(0),
                 IsDefault = isDefault, IsCancel = !isDefault,
             };
