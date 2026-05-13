@@ -137,6 +137,12 @@ namespace FirstAcadPlugin
             toolsPanel.Source.Items.Add(MakeButton("Material\nLibrary",   "MCMaterialLibrary",     ColTools));
             toolsPanel.Source.Items.Add(MakeButton("Database\nConfig",    "MCConfigDatabase",      ColTools));
             tab.Panels.Add(toolsPanel.Panel);
+
+            // ---------- DATA ----------
+            var dataPanel = MakePanel("Data");
+            dataPanel.Source.Items.Add(MakeButton("Export\nto JSON",   "MCExportToJson",   ColTools));
+            dataPanel.Source.Items.Add(MakeButton("Import\nfrom JSON", "MCImportFromJson", ColTools));
+            tab.Panels.Add(dataPanel.Panel);
         }
 
         private static (RibbonPanel Panel, RibbonPanelSource Source) MakePanel(string title)

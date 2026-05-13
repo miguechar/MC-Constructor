@@ -1,3 +1,4 @@
+using Microsoft.Win32;
 using System;
 using System.Collections.Generic;
 using System.Windows;
@@ -13,32 +14,38 @@ namespace FirstAcadPlugin
         private TextBlock statusText;
         private ListBox projectListBox;
 
+        // JSON section controls
+        private TextBox jsonPathTextBox;
+
         public Project SelectedProject { get; private set; }
 
         public ProjectDialog()
         {
             Title = "Open Project - MC Constructor";
-            Width = 550;
-            Height = 500;
+            Width = 580;
+            Height = 640;
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
             ResizeMode = ResizeMode.CanResize;
-            MinWidth = 400;
-            MinHeight = 400;
+            MinWidth = 420;
+            MinHeight = 500;
 
             var mainGrid = new Grid { Margin = new Thickness(16) };
 
-            // Define rows
-            mainGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            mainGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            mainGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            mainGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            mainGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            mainGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-            mainGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            mainGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // 0: DB label
+            mainGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // 1: DB textbox
+            mainGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // 2: Connect button
+            mainGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // 3: Status
+            mainGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // 4: Divider
+            mainGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // 5: JSON label
+            mainGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // 6: JSON path row
+            mainGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // 7: Open JSON button
+            mainGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // 8: Projects label
+            mainGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }); // 9: Project list
+            mainGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // 10: Buttons
 
             int row = 0;
 
-            // Connection String Label
+            // ---- PostgreSQL section ----
             var connLabel = new TextBlock
             {
                 Text = "Database Connection String:",
@@ -49,7 +56,6 @@ namespace FirstAcadPlugin
             Grid.SetRow(connLabel, row++);
             mainGrid.Children.Add(connLabel);
 
-            // Connection String TextBox
             connectionStringTextBox = new TextBox
             {
                 Text = "Host=localhost;Port=5432;Database=your_db;Username=postgres;Password=your_password",
@@ -64,7 +70,6 @@ namespace FirstAcadPlugin
             Grid.SetRow(connectionStringTextBox, row++);
             mainGrid.Children.Add(connectionStringTextBox);
 
-            // Connect Button
             connectButton = new Button
             {
                 Content = "Connect & Load Projects",
@@ -80,19 +85,93 @@ namespace FirstAcadPlugin
             Grid.SetRow(connectButton, row++);
             mainGrid.Children.Add(connectButton);
 
-            // Status Text
             statusText = new TextBlock
             {
                 Text = "Enter your database connection string and click Connect",
                 FontSize = 12,
                 Foreground = Brushes.Gray,
                 TextWrapping = TextWrapping.Wrap,
-                Margin = new Thickness(0, 0, 0, 16)
+                Margin = new Thickness(0, 0, 0, 12)
             };
             Grid.SetRow(statusText, row++);
             mainGrid.Children.Add(statusText);
 
-            // Projects Label
+            // ---- Divider ----
+            var dividerPanel = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                Margin = new Thickness(0, 4, 0, 12)
+            };
+            dividerPanel.Children.Add(new Separator { Width = 200, VerticalAlignment = VerticalAlignment.Center });
+            dividerPanel.Children.Add(new TextBlock
+            {
+                Text = "  —  OR  —  ",
+                FontSize = 12,
+                Foreground = Brushes.Gray,
+                VerticalAlignment = VerticalAlignment.Center
+            });
+            dividerPanel.Children.Add(new Separator { Width = 200, VerticalAlignment = VerticalAlignment.Center });
+            Grid.SetRow(dividerPanel, row++);
+            mainGrid.Children.Add(dividerPanel);
+
+            // ---- JSON section ----
+            var jsonLabel = new TextBlock
+            {
+                Text = "Open Project File (.json):",
+                FontWeight = FontWeights.Bold,
+                FontSize = 13,
+                Margin = new Thickness(0, 0, 0, 6)
+            };
+            Grid.SetRow(jsonLabel, row++);
+            mainGrid.Children.Add(jsonLabel);
+
+            // JSON path row: Browse button + path textbox
+            var jsonPathRow = new Grid { Margin = new Thickness(0, 0, 0, 8) };
+            jsonPathRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            jsonPathRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+            var browseButton = new Button
+            {
+                Content = "Browse...",
+                FontSize = 12,
+                Padding = new Thickness(12, 6, 12, 6),
+                Margin = new Thickness(0, 0, 8, 0)
+            };
+            browseButton.Click += BrowseButton_Click;
+            Grid.SetColumn(browseButton, 0);
+            jsonPathRow.Children.Add(browseButton);
+
+            jsonPathTextBox = new TextBox
+            {
+                FontSize = 12,
+                Padding = new Thickness(8, 6, 8, 6),
+                IsReadOnly = true,
+                Background = new SolidColorBrush(Color.FromRgb(245, 245, 245)),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            Grid.SetColumn(jsonPathTextBox, 1);
+            jsonPathRow.Children.Add(jsonPathTextBox);
+
+            Grid.SetRow(jsonPathRow, row++);
+            mainGrid.Children.Add(jsonPathRow);
+
+            var openJsonButton = new Button
+            {
+                Content = "Open Project",
+                FontSize = 12,
+                Padding = new Thickness(16, 8, 16, 8),
+                HorizontalAlignment = HorizontalAlignment.Left,
+                Margin = new Thickness(0, 0, 0, 16),
+                Background = new SolidColorBrush(Color.FromRgb(0, 150, 80)),
+                Foreground = Brushes.White,
+                BorderThickness = new Thickness(0)
+            };
+            openJsonButton.Click += OpenJsonButton_Click;
+            Grid.SetRow(openJsonButton, row++);
+            mainGrid.Children.Add(openJsonButton);
+
+            // ---- Project list (for postgres mode) ----
             var projectsLabel = new TextBlock
             {
                 Text = "Select a Project:",
@@ -103,7 +182,6 @@ namespace FirstAcadPlugin
             Grid.SetRow(projectsLabel, row++);
             mainGrid.Children.Add(projectsLabel);
 
-            // Projects ListBox
             projectListBox = new ListBox
             {
                 FontSize = 12,
@@ -116,7 +194,7 @@ namespace FirstAcadPlugin
             Grid.SetRow(projectListBox, row++);
             mainGrid.Children.Add(projectListBox);
 
-            // Button Panel
+            // ---- Footer buttons ----
             var buttonPanel = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
@@ -148,6 +226,118 @@ namespace FirstAcadPlugin
             mainGrid.Children.Add(buttonPanel);
 
             Content = mainGrid;
+        }
+
+        private void BrowseButton_Click(object sender, RoutedEventArgs e)
+        {
+            var dlg = new OpenFileDialog
+            {
+                Title = "Select project file",
+                Filter = "Project Files (*.json)|*.json|All Files (*.*)|*.*",
+                CheckFileExists = true
+            };
+            if (dlg.ShowDialog() == true)
+                jsonPathTextBox.Text = dlg.FileName;
+        }
+
+        private void OpenJsonButton_Click(object sender, RoutedEventArgs e)
+        {
+            string path = jsonPathTextBox.Text?.Trim();
+            if (string.IsNullOrEmpty(path))
+            {
+                MessageBox.Show("Please browse for a pro.json file first.", "No File Selected",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            var pf = ProjectFileWriter.TryLoad(path);
+            if (pf?.Project == null)
+            {
+                statusText.Text = "Could not read the selected file. Make sure it is a valid pro.json.";
+                statusText.Foreground = Brushes.Red;
+                return;
+            }
+
+            if (pf.StorageMode == "json")
+            {
+                // JSON-only project: activate JSON provider and return immediately.
+                StorageRouter.UseJson(path);
+
+                SelectedProject = new Project
+                {
+                    Id = Guid.Parse(pf.Project.Id),
+                    Name = pf.Project.Name,
+                    Description = pf.Project.Description,
+                    Directory = pf.Project.Directory
+                };
+
+                DialogResult = true;
+                Close();
+            }
+            else if (pf.StorageMode == "postgres")
+            {
+                // Postgres-backed project: auto-connect using stored credentials.
+                if (pf.Database == null)
+                {
+                    statusText.Text = "The project file has no database credentials. Enter the connection string manually above.";
+                    statusText.Foreground = Brushes.Orange;
+                    return;
+                }
+
+                string cs = ProjectFileWriter.BuildConnectionString(pf.Database);
+                try
+                {
+                    statusText.Text = "Connecting...";
+                    statusText.Foreground = Brushes.Gray;
+
+                    StorageRouter.UseNpgsql(cs);
+
+                    string connErr;
+                    if (!DatabaseService.TestConnection(out connErr))
+                    {
+                        statusText.Text = $"Connection failed:\n{connErr}";
+                        statusText.Foreground = Brushes.Red;
+                        return;
+                    }
+
+                    var projects = DatabaseService.GetProjects();
+                    projectListBox.Items.Clear();
+                    foreach (var p in projects)
+                        projectListBox.Items.Add(p);
+
+                    // Auto-select the project matching the JSON file's project id.
+                    string targetId = pf.Project.Id;
+                    foreach (var item in projectListBox.Items)
+                    {
+                        if (item is Project proj && proj.Id.ToString() == targetId)
+                        {
+                            projectListBox.SelectedItem = proj;
+                            break;
+                        }
+                    }
+
+                    if (projectListBox.SelectedItem != null)
+                    {
+                        // Auto-confirm if we found the right project.
+                        SelectProject();
+                    }
+                    else
+                    {
+                        statusText.Text = $"Connected! Found {projects.Count} project(s). Select one below.";
+                        statusText.Foreground = new SolidColorBrush(Color.FromRgb(0, 150, 0));
+                    }
+                }
+                catch (Exception ex)
+                {
+                    statusText.Text = $"Error:\n{ex.Message}";
+                    statusText.Foreground = Brushes.Red;
+                }
+            }
+            else
+            {
+                statusText.Text = $"Unknown storageMode '{pf.StorageMode}' in the project file.";
+                statusText.Foreground = Brushes.Red;
+            }
         }
 
         private void ConnectButton_Click(object sender, RoutedEventArgs e)
@@ -186,7 +376,7 @@ namespace FirstAcadPlugin
                     statusText.Foreground = new SolidColorBrush(Color.FromRgb(0, 150, 0));
                 }
             }
-            catch (System.Exception ex)
+            catch (Exception ex)
             {
                 statusText.Text = $"Error:\n{ex.Message}";
                 statusText.Foreground = Brushes.Red;
@@ -338,7 +528,7 @@ namespace FirstAcadPlugin
                     statusText.Foreground = Brushes.Red;
                 }
             }
-            catch (System.Exception ex)
+            catch (Exception ex)
             {
                 statusText.Text = $"Error: {ex.Message}";
                 statusText.Foreground = Brushes.Red;
