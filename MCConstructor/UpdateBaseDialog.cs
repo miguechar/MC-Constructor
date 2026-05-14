@@ -1,4 +1,3 @@
-using Autodesk.AutoCAD.ApplicationServices;
 using Autodesk.AutoCAD.DatabaseServices;
 using System;
 using System.Collections.Generic;
@@ -7,6 +6,8 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+
+using AcadApp = Autodesk.AutoCAD.ApplicationServices.Application;
 
 namespace MCConstructor
 {
@@ -212,7 +213,7 @@ namespace MCConstructor
             int reloaded = 0;
             int errors   = 0;
 
-            foreach (Document doc in Application.DocumentManager)
+            foreach (Document doc in AcadApp.DocumentManager)
             {
                 if (!IsTargetDoc(doc, basePath)) continue;
 
@@ -239,7 +240,7 @@ namespace MCConstructor
 
                         if (toReload.Count > 0)
                         {
-                            doc.Database.ReloadXrefs(toReload, false);
+                            doc.Database.ReloadXrefs(toReload);
                             reloaded++;
                         }
                     }
@@ -273,7 +274,7 @@ namespace MCConstructor
 
         private static bool IsOpenInSession(string filePath)
         {
-            foreach (Document doc in Application.DocumentManager)
+            foreach (Document doc in AcadApp.DocumentManager)
             {
                 if (string.Equals(doc.Name, filePath, StringComparison.OrdinalIgnoreCase))
                     return true;
