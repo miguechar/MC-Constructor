@@ -656,29 +656,22 @@ namespace MCConstructor
             // document to its own path" pattern, which throws eNotApplicable.
             var drawingId = Guid.NewGuid();
 
-            // Base takes precedence over template: if the user picked a base
-            // drawing, copy it wholesale as the starting content. Otherwise
-            // fall back to the chosen template (or blank if neither).
-            string sourcePath = !string.IsNullOrEmpty(dialog.BasePath)
-                ? dialog.BasePath
-                : dialog.TemplatePath;
-
-            // Build the .dwg on disk - either from the chosen base/template or
-            // from a default empty database, then stamp the MC drawing
-            // properties into the saved file.
+            // When a base is chosen it is overlaid as a live XRef, not copied.
+            // The drawing itself starts from the template (or blank).
             try
             {
                 WriteDrawingFile(
                     dialog.TargetFilePath,
-                    sourcePath,
+                    dialog.TemplatePath,
                     new DrawingPropertiesData
                     {
-                        DrawingType = dialog.DrawingType,
-                        Discipline  = dialog.Discipline,
-                        ProjectId   = project.Id,
-                        ProjectName = project.Name,
-                        DrawingId   = drawingId,
-                        Description = dialog.Description
+                        DrawingType     = dialog.DrawingType,
+                        Discipline      = dialog.Discipline,
+                        ProjectId       = project.Id,
+                        ProjectName     = project.Name,
+                        DrawingId       = drawingId,
+                        Description     = dialog.Description,
+                        BaseDrawingPath = dialog.BasePath   // null when no base chosen
                     });
             }
             catch (System.Exception ex)
@@ -727,7 +720,7 @@ namespace MCConstructor
             if (!string.IsNullOrEmpty(drawingRow.Discipline))
                 WriteMessageSafe($"\n  Discipline: {drawingRow.Discipline}");
             if (!string.IsNullOrEmpty(dialog.BasePath))
-                WriteMessageSafe($"\n  Base:       {Path.GetFileNameWithoutExtension(dialog.BasePath)}");
+                WriteMessageSafe($"\n  Base XRef:  {Path.GetFileNameWithoutExtension(dialog.BasePath)}");
             else if (!string.IsNullOrEmpty(dialog.TemplatePath))
                 WriteMessageSafe($"\n  Template:   {Path.GetFileName(dialog.TemplatePath)}");
             WriteMessageSafe($"\n  Path:       {drawingRow.FilePath}");
@@ -766,17 +759,131 @@ namespace MCConstructor
                 }
             }
 
-            // Step 2: stamp the MC properties. We re-open as a side-database
-            // (noDocument=true) and SaveAs back to the same path. This
-            // works for both the template-copied case and the default-empty
-            // case.
+            // Step 2: stamp MC properties and attach base drawing as an overlay
+            // XRef if one was chosen. Re-open as a side-database (noDocument=true)
+            // so we can write without disturbing the active document.
             using (var db = new Database(false, true))
             {
                 db.ReadDwgFile(targetPath, FileShare.ReadWrite, true, "");
                 db.CloseInput(true);
                 DrawingPropertiesManager.Write(db, properties);
+
+                if (!string.IsNullOrEmpty(properties.BaseDrawingPath) && File.Exists(properties.BaseDrawingPath))
+                    OverlayBaseXref(db, properties.BaseDrawingPath);
+
                 db.SaveAs(targetPath, DwgVersion.Current);
             }
+        }
+
+        /// <summary>
+        /// Overlays <paramref name="basePath"/> as an XRef (overlay mode) in
+        /// <paramref name="db"/> and inserts a block reference at the origin.
+        /// Overlay mode means the base is not inherited by drawings that later
+        /// xref this drawing, preventing unintended reference chains.
+        /// </summary>
+        private static void OverlayBaseXref(Database db, string basePath)
+        {
+            string blockName = XrefBlockName(basePath);
+            try
+            {
+                ObjectId xrefBtrId = db.OverlayXref(basePath, blockName);
+                if (xrefBtrId.IsNull) return;
+
+                using (var tr = db.TransactionManager.StartTransaction())
+                {
+                    var bt = tr.GetObject(db.BlockTableId, OpenMode.ForRead) as BlockTable;
+                    var ms = tr.GetObject(bt[BlockTableRecord.ModelSpace], OpenMode.ForWrite) as BlockTableRecord;
+
+                    using (var br = new BlockReference(Point3d.Origin, xrefBtrId))
+                    {
+                        ms.AppendEntity(br);
+                        tr.AddNewlyCreatedDBObject(br, true);
+                    }
+                    tr.Commit();
+                }
+            }
+            catch
+            {
+                // Non-fatal: drawing is still created, just without the XRef.
+                // AutoCAD may reject the overlay if the block name conflicts.
+            }
+        }
+
+        /// <summary>
+        /// Derives a valid AutoCAD block name from a file path (filename
+        /// without extension, with non-alphanumeric characters replaced by '_').
+        /// </summary>
+        private static string XrefBlockName(string filePath)
+        {
+            string name = Path.GetFileNameWithoutExtension(filePath);
+            var sb = new System.Text.StringBuilder();
+            foreach (char c in name)
+                sb.Append(char.IsLetterOrDigit(c) || c == '_' || c == '-' ? c : '_');
+            string result = sb.ToString();
+            if (string.IsNullOrEmpty(result)) return "BASE";
+            // Block names cannot start with a digit.
+            return char.IsDigit(result[0]) ? "_" + result : result;
+        }
+
+        /// <summary>
+        /// Finds the absolute path of an XRef stored in a BlockTableRecord,
+        /// resolving relative paths against the host drawing's directory.
+        /// </summary>
+        private static string ResolveXrefPath(string storedPath, string hostDrawingPath)
+        {
+            if (string.IsNullOrEmpty(storedPath)) return null;
+            if (Path.IsPathRooted(storedPath)) return storedPath;
+            try
+            {
+                string dir = Path.GetDirectoryName(hostDrawingPath) ?? "";
+                return Path.GetFullPath(Path.Combine(dir, storedPath));
+            }
+            catch { return storedPath; }
+        }
+
+        /// <summary>
+        /// MCUpdateBase — scans every drawing in the current project for an
+        /// overlay XRef that points to a chosen base drawing, reports the
+        /// affected drawings, and immediately reloads the XRef in any
+        /// documents that are already open in this AutoCAD session.
+        /// Closed drawings pick up the changes automatically the next time
+        /// they are opened, because XRefs are never baked into the host file.
+        /// </summary>
+        [CommandMethod("MCUpdateBase", CommandFlags.Session)]
+        public void UpdateBase()
+        {
+            var editor = Application.DocumentManager.MdiActiveDocument?.Editor;
+
+            var project = DatabaseService.CurrentProject;
+            if (project == null)
+            {
+                editor?.WriteMessage("\nNo project open. Use MCOpenProject first.");
+                return;
+            }
+
+            List<Drawing> baseDrawings;
+            List<Drawing> allDrawings;
+            try
+            {
+                allDrawings  = DatabaseService.GetDrawings();
+                baseDrawings = allDrawings.FindAll(d =>
+                    d.DrawingType == DrawingTypes.Base && File.Exists(d.FilePath));
+            }
+            catch (System.Exception ex)
+            {
+                editor?.WriteMessage($"\nError loading drawings: {ex.Message}");
+                return;
+            }
+
+            if (baseDrawings.Count == 0)
+            {
+                editor?.WriteMessage("\nNo base drawings found in this project.");
+                editor?.WriteMessage("\nCreate one with MCCreateDrawing using drawing type \"Base Drawing\".");
+                return;
+            }
+
+            var dialog = new UpdateBaseDialog(baseDrawings, allDrawings);
+            Application.ShowModalWindow(dialog);
         }
 
         /// <summary>

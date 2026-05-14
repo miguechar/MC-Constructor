@@ -16,12 +16,14 @@ namespace MCConstructor
     {
         // Custom property keys. Keep "MC_" prefix to avoid clashing with
         // user-defined drawing properties.
-        public const string KeyDrawingType  = "MC_DrawingType";
-        public const string KeyDiscipline   = "MC_Discipline";
-        public const string KeyProjectId    = "MC_ProjectId";
-        public const string KeyProjectName  = "MC_ProjectName";
-        public const string KeyDrawingId    = "MC_DrawingId";
-        public const string KeyDescription  = "MC_Description";
+        public const string KeyDrawingType    = "MC_DrawingType";
+        public const string KeyDiscipline     = "MC_Discipline";
+        public const string KeyProjectId      = "MC_ProjectId";
+        public const string KeyProjectName    = "MC_ProjectName";
+        public const string KeyDrawingId      = "MC_DrawingId";
+        public const string KeyDescription    = "MC_Description";
+        /// <summary>Absolute path to the base drawing overlaid as an XRef in this drawing.</summary>
+        public const string KeyBaseDrawingPath = "MC_BaseDrawingPath";
 
         /// <summary>
         /// Read the drawing properties out of the active document.
@@ -40,10 +42,11 @@ namespace MCConstructor
             if (db == null) return data;
 
             var summary = db.SummaryInfo;
-            data.DrawingType = TryGetCustom(summary, KeyDrawingType);
-            data.Discipline  = TryGetCustom(summary, KeyDiscipline);
-            data.ProjectName = TryGetCustom(summary, KeyProjectName);
-            data.Description = TryGetCustom(summary, KeyDescription);
+            data.DrawingType     = TryGetCustom(summary, KeyDrawingType);
+            data.Discipline      = TryGetCustom(summary, KeyDiscipline);
+            data.ProjectName     = TryGetCustom(summary, KeyProjectName);
+            data.Description     = TryGetCustom(summary, KeyDescription);
+            data.BaseDrawingPath = TryGetCustom(summary, KeyBaseDrawingPath);
 
             var pid = TryGetCustom(summary, KeyProjectId);
             if (Guid.TryParse(pid, out var pg)) data.ProjectId = pg;
@@ -78,12 +81,13 @@ namespace MCConstructor
             // and assign a new instance.
             var builder = new DatabaseSummaryInfoBuilder(db.SummaryInfo);
 
-            SetCustom(builder, KeyDrawingType, data.DrawingType);
-            SetCustom(builder, KeyDiscipline,  data.Discipline);
-            SetCustom(builder, KeyProjectId,   data.ProjectId?.ToString());
-            SetCustom(builder, KeyProjectName, data.ProjectName);
-            SetCustom(builder, KeyDrawingId,   data.DrawingId?.ToString());
-            SetCustom(builder, KeyDescription, data.Description);
+            SetCustom(builder, KeyDrawingType,    data.DrawingType);
+            SetCustom(builder, KeyDiscipline,     data.Discipline);
+            SetCustom(builder, KeyProjectId,      data.ProjectId?.ToString());
+            SetCustom(builder, KeyProjectName,    data.ProjectName);
+            SetCustom(builder, KeyDrawingId,      data.DrawingId?.ToString());
+            SetCustom(builder, KeyDescription,    data.Description);
+            SetCustom(builder, KeyBaseDrawingPath, data.BaseDrawingPath);
 
             db.SummaryInfo = builder.ToDatabaseSummaryInfo();
         }
@@ -127,6 +131,8 @@ namespace MCConstructor
         public string ProjectName { get; set; }
         public Guid?  DrawingId { get; set; }
         public string Description { get; set; }
+        /// <summary>Absolute path to the base drawing overlaid as an XRef, or null.</summary>
+        public string BaseDrawingPath { get; set; }
 
         public bool HasType => !string.IsNullOrEmpty(DrawingType);
     }

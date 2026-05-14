@@ -96,6 +96,7 @@ namespace MCConstructor
             projectPanel.Source.Items.Add(MakeButton("Open\nProject",    "MCOpenProject",    ColProject));
             projectPanel.Source.Items.Add(MakeButton("Navigator",        "MCNavigator",      ColProject));
             projectPanel.Source.Items.Add(MakeButton("New\nDrawing",     "MCCreateDrawing",  ColProject));
+            projectPanel.Source.Items.Add(MakeButton("Update\nBase",     "MCUpdateBase",     ColProject));
             projectPanel.Source.Items.Add(MakeButton("Save\nParts",      "MCSaveParts",      ColProject));
             projectPanel.Source.Items.Add(MakeButton("Project\nStatus",  "MCProjectStatus",  ColProject));
             tab.Panels.Add(projectPanel.Panel);
