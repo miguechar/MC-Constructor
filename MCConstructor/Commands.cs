@@ -481,14 +481,15 @@ namespace MCConstructor
             var doc = Application.DocumentManager.MdiActiveDocument;
             var editor = doc.Editor;
 
-            // Skip DB check in JSON mode or when no provider is configured yet
-            // (first-time JSON project creation needs no database).
+            // If postgres is configured but unreachable, fall back to JSON rather
+            // than blocking project creation entirely.
+            bool forceJson = false;
             if (StorageRouter.IsInitialized && StorageRouter.ActiveMode == "postgres"
                 && !DatabaseService.TestConnection(out var connError))
             {
-                editor.WriteMessage($"\nDatabase not reachable: {connError}");
-                editor.WriteMessage("\nUse MCConfigDatabase or open a project file first.");
-                return;
+                editor.WriteMessage($"\nDatabase not reachable ({connError}).");
+                editor.WriteMessage("\nNo database required — creating project in offline (JSON) mode.");
+                forceJson = true;
             }
 
             var defaultParent = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
@@ -500,8 +501,9 @@ namespace MCConstructor
                 return;
             }
 
-            // Block duplicate names early (only meaningful when a provider is already configured).
-            if (StorageRouter.IsInitialized)
+            // Block duplicate names early (skip when switching to JSON — the JSON
+            // provider uses a single-project file so duplicates aren't meaningful).
+            if (StorageRouter.IsInitialized && !forceJson)
             {
                 try
                 {
@@ -530,8 +532,8 @@ namespace MCConstructor
                 return;
             }
 
-            // If no provider is active yet, default to JSON mode for this project.
-            if (!StorageRouter.IsInitialized)
+            // Use JSON if no provider is active yet, or if postgres was unreachable.
+            if (!StorageRouter.IsInitialized || forceJson)
             {
                 string bootstrapJson = System.IO.Path.Combine(dialog.ProjectRoot, "pro.json");
                 ProjectFileWriter.WriteNew(bootstrapJson, new Project
@@ -580,6 +582,7 @@ namespace MCConstructor
             editor.WriteMessage("\n========== Project Created ==========");
             editor.WriteMessage($"\n  Name:      {project.Name}");
             editor.WriteMessage($"\n  Directory: {project.Directory}");
+            editor.WriteMessage($"\n  Mode:      {StorageRouter.ActiveMode}");
             editor.WriteMessage($"\n  Folders:   {ProjectFolderLayout.AllFolders.Count} created");
             editor.WriteMessage("\n=====================================");
         }

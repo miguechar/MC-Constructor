@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS public.drawings (
 
     -- Constraints
     CONSTRAINT chk_drawings_drawing_type CHECK (drawing_type IN (
+        'Base',
         'BlockLibrary',
         'FunctionalDrawing',
         'DetailDrawing',
