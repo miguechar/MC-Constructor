@@ -8,6 +8,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 
 using AcadApp = Autodesk.AutoCAD.ApplicationServices.Application;
+using AcDocument = Autodesk.AutoCAD.ApplicationServices.Document;
 
 namespace MCConstructor
 {
@@ -213,7 +214,7 @@ namespace MCConstructor
             int reloaded = 0;
             int errors   = 0;
 
-            foreach (Document doc in AcadApp.DocumentManager)
+            foreach (AcDocument doc in AcadApp.DocumentManager)
             {
                 if (!IsTargetDoc(doc, basePath)) continue;
 
@@ -274,7 +275,7 @@ namespace MCConstructor
 
         private static bool IsOpenInSession(string filePath)
         {
-            foreach (Document doc in AcadApp.DocumentManager)
+            foreach (AcDocument doc in AcadApp.DocumentManager)
             {
                 if (string.Equals(doc.Name, filePath, StringComparison.OrdinalIgnoreCase))
                     return true;
@@ -283,7 +284,7 @@ namespace MCConstructor
         }
 
         /// <summary>True if <paramref name="doc"/> has an XRef to <paramref name="basePath"/>.</summary>
-        private static bool IsTargetDoc(Document doc, string basePath)
+        private static bool IsTargetDoc(AcDocument doc, string basePath)
         {
             try
             {
