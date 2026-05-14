@@ -185,6 +185,13 @@ namespace MCConstructor
                 BorderThickness = new Thickness(0),
                 FontWeight = FontWeights.SemiBold,
             };
+            // Opacity trigger makes the disabled state readable on the dark window
+            // background without requiring a full ControlTemplate override.
+            var openBtnStyle = new Style(typeof(Button));
+            var disabledTrigger = new Trigger { Property = UIElement.IsEnabledProperty, Value = false };
+            disabledTrigger.Setters.Add(new Setter(UIElement.OpacityProperty, 0.35));
+            openBtnStyle.Triggers.Add(disabledTrigger);
+            openButton.Style = openBtnStyle;
             openButton.Click += OpenButton_Click;
             btnPanel.Children.Add(openButton);
 
@@ -329,6 +336,7 @@ namespace MCConstructor
             {
                 Header = headerText,
                 FontWeight = FontWeights.Bold,
+                Foreground = Brushes.White,
                 IsExpanded = drawings.Count > 0 && drawings.Count <= 20
             };
 
@@ -345,6 +353,7 @@ namespace MCConstructor
                     {
                         Header = $"{d} ({subset.Count})",
                         FontWeight = FontWeights.Normal,
+                        Foreground = Brushes.White,
                         IsExpanded = subset.Count > 0 && subset.Count <= 12
                     };
                     foreach (var dr in subset) disc.Items.Add(MakeDrawingItem(dr));
@@ -363,6 +372,7 @@ namespace MCConstructor
                     {
                         Header = $"(no discipline) ({orphans.Count})",
                         FontWeight = FontWeights.Normal,
+                        Foreground = Brushes.White,
                         IsExpanded = false
                     };
                     foreach (var dr in orphans) orphanGroup.Items.Add(MakeDrawingItem(dr));
@@ -384,7 +394,8 @@ namespace MCConstructor
             {
                 Header = d.Name,
                 Tag = d,
-                FontWeight = FontWeights.Normal
+                FontWeight = FontWeights.Normal,
+                Foreground = Brushes.White
             };
             // Double-click anywhere on the row opens the drawing.
             item.MouseDoubleClick += (s, e) =>

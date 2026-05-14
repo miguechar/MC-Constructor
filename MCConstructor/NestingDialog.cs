@@ -123,7 +123,7 @@ namespace MCConstructor
             {
                 Width = 200, Height = 26,
                 Background = Brush(37, 37, 38),
-                Foreground = Brushes.White,
+                Foreground = Brushes.Black,
                 BorderBrush = Brush(67, 67, 70),
             };
             _materialFilter.SelectionChanged += OnMaterialFilterChanged;
@@ -253,12 +253,12 @@ namespace MCConstructor
 
             // Populate material filter: "All Materials" + distinct names.
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            _materialFilter.Items.Add(new ComboBoxItem { Content = "All Materials", Tag = null });
+            _materialFilter.Items.Add(new ComboBoxItem { Content = "All Materials", Tag = null, Foreground = Brushes.Black });
             foreach (var plate in _allPlates)
             {
                 string name = plate.MaterialName ?? "";
                 if (seen.Add(name))
-                    _materialFilter.Items.Add(new ComboBoxItem { Content = name, Tag = name });
+                    _materialFilter.Items.Add(new ComboBoxItem { Content = name, Tag = name, Foreground = Brushes.Black });
             }
             _materialFilter.SelectedIndex = 0;
 

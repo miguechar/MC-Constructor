@@ -381,7 +381,7 @@ namespace MCConstructor
         {
             FontSize = fontSize, Padding = new Thickness(6, 3, 6, 3),
             Margin = new Thickness(0, 0, 0, 12),
-            Background = D(37, 37, 38), Foreground = Brushes.White,
+            Background = D(37, 37, 38), Foreground = Brushes.Black,
             BorderBrush = D(67, 67, 70), BorderThickness = new Thickness(1),
         };
 
