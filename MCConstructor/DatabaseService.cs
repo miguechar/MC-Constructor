@@ -41,6 +41,7 @@ namespace MCConstructor
     /// </summary>
     public static class DrawingTypes
     {
+        public const string Base = "Base";
         public const string BlockLibrary = "BlockLibrary";
         public const string FunctionalDrawing = "FunctionalDrawing";
         public const string DetailDrawing = "DetailDrawing";
@@ -52,7 +53,7 @@ namespace MCConstructor
         public const string Other = "Other";
 
         public static readonly string[] All = {
-            BlockLibrary, FunctionalDrawing, DetailDrawing,
+            Base, BlockLibrary, FunctionalDrawing, DetailDrawing,
             Template, Titleblock, Sheet, Profile, ProfilePlot, Other
         };
 
@@ -70,6 +71,7 @@ namespace MCConstructor
         {
             switch (drawingType)
             {
+                case Base:              return @"01 Standards\Bases";
                 case BlockLibrary:      return @"01 Standards\Blocks";
                 case Template:          return @"01 Standards\Templates";
                 case Titleblock:        return @"01 Standards\Titleblocks";
@@ -88,6 +90,7 @@ namespace MCConstructor
         {
             switch (drawingType)
             {
+                case Base:              return "Base Drawing";
                 case BlockLibrary:      return "Block Library";
                 case FunctionalDrawing: return "Functional Drawing";
                 case DetailDrawing:     return "Detail Drawing";

@@ -18,6 +18,8 @@ namespace MCConstructor
         private ComboBox typeCombo;
         private ComboBox disciplineCombo;
         private ComboBox templateCombo;
+        private ComboBox baseCombo;
+        private TextBlock baseLabel;
         private TextBox nameBox;
         private TextBox descriptionBox;
         private TextBlock pathPreview;
@@ -36,6 +38,12 @@ namespace MCConstructor
         /// be seeded from, or null to start from a blank default drawing.
         /// </summary>
         public string TemplatePath { get; private set; }
+        /// <summary>
+        /// Absolute path to the Base drawing to copy as the starting content
+        /// for this new drawing. When set, takes precedence over TemplatePath.
+        /// Null when no base was chosen.
+        /// </summary>
+        public string BasePath { get; private set; }
 
         public CreateDrawingDialog(Project project)
         {
@@ -43,11 +51,11 @@ namespace MCConstructor
 
             Title = "Create Drawing - MC Constructor";
             Width = 520;
-            Height = 520;
+            Height = 580;
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
             ResizeMode = ResizeMode.CanResize;
             MinWidth = 460;
-            MinHeight = 480;
+            MinHeight = 540;
             Background = D(45, 45, 48);
 
             var stack = new StackPanel { Margin = new Thickness(20) };
@@ -73,6 +81,12 @@ namespace MCConstructor
             templateCombo = DarkCombo(12);
             PopulateTemplateCombo();
             stack.Children.Add(templateCombo);
+
+            baseLabel = MakeLabel("Choose Base (optional):");
+            stack.Children.Add(baseLabel);
+            baseCombo = DarkCombo(12);
+            PopulateBaseCombo();
+            stack.Children.Add(baseCombo);
 
             stack.Children.Add(MakeLabel("Drawing Name (no extension):"));
             nameBox = DarkBox(12);
@@ -212,6 +226,46 @@ namespace MCConstructor
             disciplineCombo.IsEnabled = requires;
             if (!requires)
                 disciplineCombo.SelectedIndex = 0;
+
+            // Base drawings cannot themselves be based on another base.
+            bool isBase = t?.Value == DrawingTypes.Base;
+            baseLabel.Visibility = isBase ? System.Windows.Visibility.Collapsed : System.Windows.Visibility.Visible;
+            baseCombo.Visibility  = isBase ? System.Windows.Visibility.Collapsed : System.Windows.Visibility.Visible;
+            if (isBase)
+                baseCombo.SelectedIndex = 0;
+        }
+
+        /// <summary>
+        /// Fill the Base combo from <projectRoot>\01 Standards\Bases.
+        /// First item is always "(none)" so the field is optional.
+        /// </summary>
+        private void PopulateBaseCombo()
+        {
+            baseCombo.Items.Clear();
+            baseCombo.Items.Add(new ComboItem("", "(none - no base)"));
+
+            try
+            {
+                if (!string.IsNullOrEmpty(_project.Directory))
+                {
+                    string basesDir = Path.Combine(_project.Directory, ProjectFolderLayout.Bases);
+                    if (Directory.Exists(basesDir))
+                    {
+                        var files = Directory
+                            .EnumerateFiles(basesDir, "*.dwg", SearchOption.TopDirectoryOnly)
+                            .OrderBy(p => Path.GetFileName(p), StringComparer.OrdinalIgnoreCase);
+
+                        foreach (var path in files)
+                            baseCombo.Items.Add(new ComboItem(path, Path.GetFileNameWithoutExtension(path)));
+                    }
+                }
+            }
+            catch
+            {
+                // Non-fatal: just won't list bases.
+            }
+
+            baseCombo.SelectedIndex = 0;
         }
 
         private void UpdatePathPreview()
@@ -300,6 +354,9 @@ namespace MCConstructor
 
             var tpl = templateCombo.SelectedItem as ComboItem;
             TemplatePath = string.IsNullOrEmpty(tpl?.Value) ? null : tpl.Value;
+
+            var baseItem = baseCombo.SelectedItem as ComboItem;
+            BasePath = string.IsNullOrEmpty(baseItem?.Value) ? null : baseItem.Value;
 
             DialogResult = true;
             Close();

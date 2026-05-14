@@ -265,6 +265,10 @@ namespace MCConstructor
             // Drawings, then a "Standards" / "Sheets" / "Other" rollup so the
             // user has a complete picture but the user-requested division
             // between function and detail stays prominent.
+            AddGroup("Base Drawings", existing
+                .Where(d => d.DrawingType == DrawingTypes.Base)
+                .ToList());
+
             AddGroup("Functional Drawings", existing
                 .Where(d => d.DrawingType == DrawingTypes.FunctionalDrawing)
                 .ToList(), groupByDiscipline: true);

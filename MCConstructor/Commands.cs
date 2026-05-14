@@ -653,14 +653,21 @@ namespace MCConstructor
             // document to its own path" pattern, which throws eNotApplicable.
             var drawingId = Guid.NewGuid();
 
-            // Build the .dwg on disk - either from the chosen template or
+            // Base takes precedence over template: if the user picked a base
+            // drawing, copy it wholesale as the starting content. Otherwise
+            // fall back to the chosen template (or blank if neither).
+            string sourcePath = !string.IsNullOrEmpty(dialog.BasePath)
+                ? dialog.BasePath
+                : dialog.TemplatePath;
+
+            // Build the .dwg on disk - either from the chosen base/template or
             // from a default empty database, then stamp the MC drawing
             // properties into the saved file.
             try
             {
                 WriteDrawingFile(
                     dialog.TargetFilePath,
-                    dialog.TemplatePath,
+                    sourcePath,
                     new DrawingPropertiesData
                     {
                         DrawingType = dialog.DrawingType,
@@ -716,7 +723,9 @@ namespace MCConstructor
             WriteMessageSafe($"\n  Type:       {DrawingTypes.DisplayName(drawingRow.DrawingType)}");
             if (!string.IsNullOrEmpty(drawingRow.Discipline))
                 WriteMessageSafe($"\n  Discipline: {drawingRow.Discipline}");
-            if (!string.IsNullOrEmpty(dialog.TemplatePath))
+            if (!string.IsNullOrEmpty(dialog.BasePath))
+                WriteMessageSafe($"\n  Base:       {Path.GetFileNameWithoutExtension(dialog.BasePath)}");
+            else if (!string.IsNullOrEmpty(dialog.TemplatePath))
                 WriteMessageSafe($"\n  Template:   {Path.GetFileName(dialog.TemplatePath)}");
             WriteMessageSafe($"\n  Path:       {drawingRow.FilePath}");
             WriteMessageSafe("\n======================================");
