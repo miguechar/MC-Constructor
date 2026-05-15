@@ -16,7 +16,7 @@ MC Constructor is a C# ObjectARX plugin for AutoCAD 2024 that provides manufactu
 ## Installation
 
 1. Build the solution in Visual Studio 2022 (`Release` configuration).
-2. In AutoCAD, type `NETLOAD` and select `FirstAcadPlugin.dll`.
+2. In AutoCAD, type `NETLOAD` and select `MCConstructor.dll`.
 3. The **MC Constructor** ribbon tab appears automatically.
 4. Run `MCConfigDatabase` to connect to your PostgreSQL database.
 

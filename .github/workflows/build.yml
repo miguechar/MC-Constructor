@@ -10,25 +10,25 @@ on:
 
 jobs:
   build:
-    name: Build FirstAcadPlugin
+    name: Build MCConstructor
     runs-on: windows-latest
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
 
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
 
       - name: Restore NuGet packages
-        run: msbuild FirstAcadPlugin.sln /t:Restore /p:RestorePackagesConfig=true /verbosity:minimal
+        run: msbuild MCConstructor.sln /t:Restore /p:RestorePackagesConfig=true /verbosity:minimal
 
       - name: Build solution
-        run: msbuild FirstAcadPlugin.sln /m /p:Configuration=Release /p:Platform="Any CPU" /verbosity:minimal
+        run: msbuild MCConstructor.sln /m /p:Configuration=Release /p:Platform="Any CPU" /verbosity:minimal
 
       - name: Upload plugin artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
-          name: FirstAcadPlugin-Release
-          path: FirstAcadPlugin/bin/Release/**
+          name: MCConstructor-${{ github.ref_name }}
+          path: MCConstructor/bin/Release/**
           if-no-files-found: error
