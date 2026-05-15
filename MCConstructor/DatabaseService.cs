@@ -274,6 +274,32 @@ namespace MCConstructor
         public int Version { get; set; } = 1;
     }
 
+    /// <summary>
+    /// Tracks a nesting run: the plate used, export status, and cut tracking.
+    /// Mirrors public.nests.
+    /// </summary>
+    public class NestRecord
+    {
+        public Guid Id { get; set; }
+        public Guid ProjectId { get; set; }
+        public Guid? DrawingId { get; set; }
+        public string Name { get; set; }
+        public DateTime CreatedAt { get; set; }
+        public string MaterialName { get; set; }
+        public string PlateCode { get; set; }
+        public string PlateDimensions { get; set; }
+        public int PartCount { get; set; }
+        public double Efficiency { get; set; }
+        public bool SentToCut { get; set; }
+        public bool Cut { get; set; }
+        public DateTime? CutDate { get; set; }
+        /// <summary>Path of the exported .dxf file, populated by Send to Cut.</summary>
+        public string NestLocation { get; set; }
+        /// <summary>Path of the source .dwg nest drawing on disk.</summary>
+        public string DwgPath { get; set; }
+        public override string ToString() => Name;
+    }
+
     // ========================================================================
     // DatabaseService — facade that delegates to the active IStorageProvider
     // ========================================================================
@@ -373,5 +399,17 @@ namespace MCConstructor
         public static void ApplyOverrideToOriginal(Guid overridePartId) => StorageRouter.Provider.ApplyOverrideToOriginal(overridePartId);
 
         public static Guid SavePartReference(DrawingPart part, Guid parentPartId) => StorageRouter.Provider.SavePartReference(part, parentPartId);
+
+        // ----------------------------------------------------------------
+        // Nests
+        // ----------------------------------------------------------------
+
+        public static NestRecord CreateNest(NestRecord nest) => StorageRouter.Provider.CreateNest(nest);
+
+        public static List<NestRecord> GetNests() => StorageRouter.Provider.GetNests();
+
+        public static void UpdateNestSentToCut(Guid nestId, string dxfPath) => StorageRouter.Provider.UpdateNestSentToCut(nestId, dxfPath);
+
+        public static void UpdateNestCut(Guid nestId, bool cut, DateTime? cutDate) => StorageRouter.Provider.UpdateNestCut(nestId, cut, cutDate);
     }
 }

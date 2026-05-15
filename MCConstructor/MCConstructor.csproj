@@ -143,6 +143,7 @@
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="RibbonIcons.cs" />
     <Compile Include="StorageRouter.cs" />
+    <Compile Include="NestManagerWindow.cs" />
     <Compile Include="UpdateBaseDialog.cs" />
   </ItemGroup>
   <ItemGroup>
@@ -165,6 +166,9 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
     <Content Include="SQL\create_materials_and_profiles.sql">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+    <Content Include="SQL\create_nests_table.sql">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
   </ItemGroup>

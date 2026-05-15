@@ -1015,5 +1015,135 @@ namespace MCConstructor
             }
             return list;
         }
+
+        // ====================================================================
+        // NESTS
+        // ====================================================================
+
+        public NestRecord CreateNest(NestRecord nest)
+        {
+            if (DatabaseService.CurrentProject == null)
+                throw new InvalidOperationException("No project open. Use MCOpenProject first.");
+            if (nest == null) throw new ArgumentNullException(nameof(nest));
+
+            if (nest.Id == Guid.Empty) nest.Id = Guid.NewGuid();
+
+            using (var conn = new NpgsqlConnection(_connectionString))
+            {
+                conn.Open();
+                using (var cmd = new NpgsqlCommand(
+                    @"INSERT INTO public.nests
+                        (id, project_id, drawing_id, name, created_at, material_name,
+                         plate_code, plate_dimensions, part_count, efficiency, dwg_path)
+                      VALUES
+                        (@id, @projectId, @drawingId, @name, @createdAt, @materialName,
+                         @plateCode, @plateDimensions, @partCount, @efficiency, @dwgPath)
+                      RETURNING created_at", conn))
+                {
+                    cmd.Parameters.AddWithValue("id", nest.Id);
+                    cmd.Parameters.AddWithValue("projectId", DatabaseService.CurrentProject.Id);
+                    cmd.Parameters.AddWithValue("drawingId", (object)(nest.DrawingId.HasValue ? (object)nest.DrawingId.Value : DBNull.Value) ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("name", nest.Name ?? "");
+                    cmd.Parameters.AddWithValue("createdAt", nest.CreatedAt == default ? DateTime.UtcNow : nest.CreatedAt);
+                    cmd.Parameters.AddWithValue("materialName", (object)nest.MaterialName ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("plateCode", (object)nest.PlateCode ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("plateDimensions", (object)nest.PlateDimensions ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("partCount", nest.PartCount);
+                    cmd.Parameters.AddWithValue("efficiency", nest.Efficiency);
+                    cmd.Parameters.AddWithValue("dwgPath", (object)nest.DwgPath ?? DBNull.Value);
+
+                    nest.CreatedAt = (DateTime)cmd.ExecuteScalar();
+                }
+            }
+
+            nest.ProjectId = DatabaseService.CurrentProject.Id;
+            return nest;
+        }
+
+        public List<NestRecord> GetNests()
+        {
+            var list = new List<NestRecord>();
+            if (DatabaseService.CurrentProject == null) return list;
+
+            using (var conn = new NpgsqlConnection(_connectionString))
+            {
+                conn.Open();
+                using (var cmd = new NpgsqlCommand(
+                    @"SELECT id, project_id, drawing_id, name, created_at,
+                             material_name, plate_code, plate_dimensions,
+                             part_count, efficiency,
+                             sent_to_cut, cut, cut_date,
+                             nest_location, dwg_path
+                      FROM public.nests
+                      WHERE project_id = @projectId
+                      ORDER BY created_at DESC", conn))
+                {
+                    cmd.Parameters.AddWithValue("projectId", DatabaseService.CurrentProject.Id);
+                    using (var r = cmd.ExecuteReader())
+                    {
+                        while (r.Read())
+                            list.Add(ReadNest(r));
+                    }
+                }
+            }
+            return list;
+        }
+
+        public void UpdateNestSentToCut(Guid nestId, string dxfPath)
+        {
+            using (var conn = new NpgsqlConnection(_connectionString))
+            {
+                conn.Open();
+                using (var cmd = new NpgsqlCommand(
+                    @"UPDATE public.nests
+                      SET sent_to_cut = TRUE, nest_location = @nestLocation
+                      WHERE id = @id", conn))
+                {
+                    cmd.Parameters.AddWithValue("id", nestId);
+                    cmd.Parameters.AddWithValue("nestLocation", (object)dxfPath ?? DBNull.Value);
+                    cmd.ExecuteNonQuery();
+                }
+            }
+        }
+
+        public void UpdateNestCut(Guid nestId, bool cut, DateTime? cutDate)
+        {
+            using (var conn = new NpgsqlConnection(_connectionString))
+            {
+                conn.Open();
+                using (var cmd = new NpgsqlCommand(
+                    @"UPDATE public.nests
+                      SET cut = @cut, cut_date = @cutDate
+                      WHERE id = @id", conn))
+                {
+                    cmd.Parameters.AddWithValue("id", nestId);
+                    cmd.Parameters.AddWithValue("cut", cut);
+                    cmd.Parameters.AddWithValue("cutDate", cutDate.HasValue ? (object)cutDate.Value.Date : DBNull.Value);
+                    cmd.ExecuteNonQuery();
+                }
+            }
+        }
+
+        private static NestRecord ReadNest(NpgsqlDataReader r)
+        {
+            return new NestRecord
+            {
+                Id             = r.GetGuid(0),
+                ProjectId      = r.GetGuid(1),
+                DrawingId      = r.IsDBNull(2) ? (Guid?)null : r.GetGuid(2),
+                Name           = r.GetString(3),
+                CreatedAt      = r.GetDateTime(4),
+                MaterialName   = r.IsDBNull(5)  ? null : r.GetString(5),
+                PlateCode      = r.IsDBNull(6)  ? null : r.GetString(6),
+                PlateDimensions= r.IsDBNull(7)  ? null : r.GetString(7),
+                PartCount      = r.GetInt32(8),
+                Efficiency     = r.GetDouble(9),
+                SentToCut      = r.GetBoolean(10),
+                Cut            = r.GetBoolean(11),
+                CutDate        = r.IsDBNull(12) ? (DateTime?)null : r.GetDateTime(12),
+                NestLocation   = r.IsDBNull(13) ? null : r.GetString(13),
+                DwgPath        = r.IsDBNull(14) ? null : r.GetString(14)
+            };
+        }
     }
 }

@@ -127,8 +127,9 @@ namespace MCConstructor
 
             // ---------- NESTING ----------
             var nestingPanel = MakePanel("Nesting");
-            nestingPanel.Source.Items.Add(MakeButton("Create\nNest", "MCCreateNest", ColNesting));
-            nestingPanel.Source.Items.Add(MakeButton("Quick\nNest",  "MCQuickNest",  ColNesting));
+            nestingPanel.Source.Items.Add(MakeButton("Create\nNest",  "MCCreateNest",  ColNesting));
+            nestingPanel.Source.Items.Add(MakeButton("Quick\nNest",   "MCQuickNest",   ColNesting));
+            nestingPanel.Source.Items.Add(MakeButton("Nest\nManager", "MCNestManager", ColNesting));
             tab.Panels.Add(nestingPanel.Panel);
 
             // ---------- TOOLS ----------

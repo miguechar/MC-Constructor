@@ -39,6 +39,26 @@ namespace MCConstructor
         public List<MaterialRecord> Materials { get; set; } = new List<MaterialRecord>();
         public List<MaterialPlateRecord> MaterialPlates { get; set; } = new List<MaterialPlateRecord>();
         public List<ProfileRecord> Profiles { get; set; } = new List<ProfileRecord>();
+        public List<NestRecordJson> Nests { get; set; } = new List<NestRecordJson>();
+    }
+
+    internal class NestRecordJson
+    {
+        public string Id { get; set; }
+        public string ProjectId { get; set; }
+        public string DrawingId { get; set; }
+        public string Name { get; set; }
+        public string CreatedAt { get; set; }
+        public string MaterialName { get; set; }
+        public string PlateCode { get; set; }
+        public string PlateDimensions { get; set; }
+        public int PartCount { get; set; }
+        public double Efficiency { get; set; }
+        public bool SentToCut { get; set; }
+        public bool Cut { get; set; }
+        public string CutDate { get; set; }
+        public string NestLocation { get; set; }
+        public string DwgPath { get; set; }
     }
 
     internal class DrawingRecord
