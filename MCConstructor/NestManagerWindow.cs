@@ -7,7 +7,7 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
-using Autodesk.AutoCAD.DatabaseServices;
+using AcDb = Autodesk.AutoCAD.DatabaseServices;
 using Application = Autodesk.AutoCAD.ApplicationServices.Application;
 
 namespace MCConstructor
@@ -509,7 +509,7 @@ namespace MCConstructor
         {
             try
             {
-                using (var db = new Database(false, true))
+                using (var db = new AcDb.Database(false, true))
                 {
                     db.ReadDwgFile(dwgPath, FileShare.Read, true, "");
                     var bmp = db.ThumbnailBitmap;
@@ -537,10 +537,10 @@ namespace MCConstructor
 
         private static void ExportDwgToDxf(string dwgPath, string dxfPath)
         {
-            using (var db = new Database(false, true))
+            using (var db = new AcDb.Database(false, true))
             {
                 db.ReadDwgFile(dwgPath, FileShare.Read, true, "");
-                db.DxfOut(dxfPath, 16, DwgVersion.Current);
+                db.DxfOut(dxfPath, 16, AcDb.DwgVersion.Current);
             }
         }
 
