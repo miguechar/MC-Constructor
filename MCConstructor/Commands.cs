@@ -1827,6 +1827,8 @@ namespace MCConstructor
 
                 int ok = 0, failed = 0;
 
+                double rollRad = dialog.RollAngle * Math.PI / 180.0;
+
                 foreach (var (start, dir, len) in lineGeometry)
                 {
                     try
@@ -1842,6 +1844,8 @@ namespace MCConstructor
                                 var ent = tr.GetObject(id, OpenMode.ForWrite) as Entity;
                                 if (ent == null) continue;
                                 ent.TransformBy(xform);
+                                if (rollRad != 0.0)
+                                    ent.TransformBy(Matrix3d.Rotation(rollRad, dir, start));
                                 PartGeometryHelper.SetProfileXData(ent, profileDwg.Name, tr, db);
                             }
                             tr.Commit();
@@ -1860,7 +1864,7 @@ namespace MCConstructor
                     try
                     {
                         // Region is cloned into targetDb; sweep runs entirely inside targetDb.
-                        var ids = CreateExtrudedProfileAlongPath(profileDwg.FilePath, curveId, db);
+                        var ids = CreateExtrudedProfileAlongPath(profileDwg.FilePath, curveId, db, rollRad);
                         if (ids.Count == 0) { failed++; continue; }
 
                         using (var tr = db.TransactionManager.StartTransaction())
@@ -1904,6 +1908,7 @@ namespace MCConstructor
                     }
 
                     var xform = BuildAlignmentTransform(Vector3d.ZAxis, Vector3d.ZAxis, ptResult.Value);
+                    double ptRollRad = dialog.RollAngle * Math.PI / 180.0;
                     using (var tr = db.TransactionManager.StartTransaction())
                     {
                         foreach (var id in ids)
@@ -1911,6 +1916,8 @@ namespace MCConstructor
                             var ent = tr.GetObject(id, OpenMode.ForWrite) as Entity;
                             if (ent == null) continue;
                             ent.TransformBy(xform);
+                            if (ptRollRad != 0.0)
+                                ent.TransformBy(Matrix3d.Rotation(ptRollRad, Vector3d.ZAxis, ptResult.Value));
                             PartGeometryHelper.SetProfileXData(ent, profileDwg.Name, tr, db);
                         }
                         tr.Commit();
@@ -2081,7 +2088,8 @@ namespace MCConstructor
         /// during the sweep — which is required by the ObjectARX modeler.
         /// </summary>
         private static List<ObjectId> CreateExtrudedProfileAlongPath(
-            string profileFilePath, ObjectId pathCurveId, Database targetDb)
+            string profileFilePath, ObjectId pathCurveId, Database targetDb,
+            double rollAngleRad = 0.0)
         {
             var result = new List<ObjectId>();
 
@@ -2175,6 +2183,9 @@ namespace MCConstructor
 
                 var xform = BuildAlignmentTransform(Vector3d.ZAxis, startTangent, startPt);
                 region.TransformBy(xform);
+
+                if (rollAngleRad != 0.0)
+                    region.TransformBy(Matrix3d.Rotation(rollAngleRad, startTangent, startPt));
 
                 var ms = (BlockTableRecord)tr.GetObject(targetMsId, OpenMode.ForWrite);
 
