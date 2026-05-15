@@ -2137,7 +2137,7 @@ namespace MCConstructor
                         tr.AddNewlyCreatedDBObject(pathClone, true);
 
                         var solid = new Solid3d();
-                        solid.ExtrudeAlongPath(regionToExtrude, pathClone);
+                        solid.ExtrudeAlongPath(regionToExtrude, pathClone, 0.0);
                         ms.AppendEntity(solid);
                         tr.AddNewlyCreatedDBObject(solid, true);
                         solidIds.Add(solid.ObjectId);
