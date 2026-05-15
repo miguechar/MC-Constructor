@@ -46,5 +46,11 @@ namespace MCConstructor
         Guid SaveProfile(Profile p);
         void DeleteProfile(Guid id);
         List<Drawing> GetProfileDrawings();
+
+        // Nests
+        NestRecord CreateNest(NestRecord nest);
+        List<NestRecord> GetNests();
+        void UpdateNestSentToCut(Guid nestId, string dxfPath);
+        void UpdateNestCut(Guid nestId, bool cut, DateTime? cutDate);
     }
 }

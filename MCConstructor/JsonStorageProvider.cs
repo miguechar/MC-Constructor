@@ -787,6 +787,113 @@ namespace MCConstructor
         }
 
         // ====================================================================
+        // NESTS
+        // ====================================================================
+
+        public NestRecord CreateNest(NestRecord nest)
+        {
+            if (DatabaseService.CurrentProject == null)
+                throw new InvalidOperationException("No project open.");
+            if (nest == null) throw new ArgumentNullException(nameof(nest));
+
+            var pf = Load();
+            if (pf.Data.Nests == null) pf.Data.Nests = new List<NestRecordJson>();
+
+            if (nest.Id == Guid.Empty) nest.Id = Guid.NewGuid();
+            if (nest.CreatedAt == default) nest.CreatedAt = DateTime.UtcNow;
+
+            pf.Data.Nests.Add(MapNestToRecord(nest));
+            Save(pf);
+            return nest;
+        }
+
+        public List<NestRecord> GetNests()
+        {
+            var list = new List<NestRecord>();
+            if (DatabaseService.CurrentProject == null) return list;
+
+            var pf = Load();
+            if (pf.Data.Nests == null) return list;
+
+            string projectId = DatabaseService.CurrentProject.Id.ToString();
+            foreach (var r in pf.Data.Nests)
+            {
+                if (r.ProjectId == projectId)
+                    list.Add(MapNest(r));
+            }
+            list.Sort((a, b) => b.CreatedAt.CompareTo(a.CreatedAt));
+            return list;
+        }
+
+        public void UpdateNestSentToCut(Guid nestId, string dxfPath)
+        {
+            var pf = Load();
+            if (pf.Data.Nests == null) return;
+            string id = nestId.ToString();
+            var rec = pf.Data.Nests.Find(n => n.Id == id);
+            if (rec == null) return;
+            rec.SentToCut    = true;
+            rec.NestLocation = dxfPath;
+            Save(pf);
+        }
+
+        public void UpdateNestCut(Guid nestId, bool cut, DateTime? cutDate)
+        {
+            var pf = Load();
+            if (pf.Data.Nests == null) return;
+            string id = nestId.ToString();
+            var rec = pf.Data.Nests.Find(n => n.Id == id);
+            if (rec == null) return;
+            rec.Cut     = cut;
+            rec.CutDate = cutDate.HasValue ? cutDate.Value.ToString("yyyy-MM-dd") : null;
+            Save(pf);
+        }
+
+        private static NestRecordJson MapNestToRecord(NestRecord n)
+        {
+            return new NestRecordJson
+            {
+                Id             = n.Id.ToString(),
+                ProjectId      = n.ProjectId.ToString(),
+                DrawingId      = n.DrawingId.HasValue ? n.DrawingId.Value.ToString() : null,
+                Name           = n.Name,
+                CreatedAt      = n.CreatedAt.ToString("o"),
+                MaterialName   = n.MaterialName,
+                PlateCode      = n.PlateCode,
+                PlateDimensions = n.PlateDimensions,
+                PartCount      = n.PartCount,
+                Efficiency     = n.Efficiency,
+                SentToCut      = n.SentToCut,
+                Cut            = n.Cut,
+                CutDate        = n.CutDate.HasValue ? n.CutDate.Value.ToString("yyyy-MM-dd") : null,
+                NestLocation   = n.NestLocation,
+                DwgPath        = n.DwgPath
+            };
+        }
+
+        private static NestRecord MapNest(NestRecordJson r)
+        {
+            return new NestRecord
+            {
+                Id             = Guid.Parse(r.Id),
+                ProjectId      = Guid.Parse(r.ProjectId),
+                DrawingId      = string.IsNullOrEmpty(r.DrawingId) ? (Guid?)null : Guid.Parse(r.DrawingId),
+                Name           = r.Name,
+                CreatedAt      = ParseDate(r.CreatedAt),
+                MaterialName   = r.MaterialName,
+                PlateCode      = r.PlateCode,
+                PlateDimensions = r.PlateDimensions,
+                PartCount      = r.PartCount,
+                Efficiency     = r.Efficiency,
+                SentToCut      = r.SentToCut,
+                Cut            = r.Cut,
+                CutDate        = string.IsNullOrEmpty(r.CutDate) ? (DateTime?)null : DateTime.Parse(r.CutDate),
+                NestLocation   = r.NestLocation,
+                DwgPath        = r.DwgPath
+            };
+        }
+
+        // ====================================================================
         // HELPERS
         // ====================================================================
 

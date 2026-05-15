@@ -1506,6 +1506,7 @@ namespace MCConstructor
                 // If we wrote a real file, register it in the database so
                 // the navigator can find it.
                 RegisterNestDrawingIfSaved(nestPlan, nestingResult);
+                RegisterNestRecord(nestPlan, nestingResult, dialog.SelectedPlate, dialog.PlateWidth, dialog.PlateHeight);
 
                 // CreateNestingDrawing makes a new doc the active document, so
                 // the editor we captured above is no longer applicable. Use
@@ -1627,6 +1628,52 @@ namespace MCConstructor
         }
 
         /// <summary>
+        /// Create a NestRecord row in public.nests so the Nest Manager can track
+        /// this run. Best-effort — a DB failure does not abort the nest.
+        /// </summary>
+        private static void RegisterNestRecord(
+            NestOutputPlan plan,
+            NestingResult  nestingResult,
+            MaterialPlate  plate,
+            double         plateWidth,
+            double         plateHeight)
+        {
+            if (DatabaseService.CurrentProject == null) return;
+            if (!StorageRouter.IsInitialized) return;
+
+            try
+            {
+                string materialName    = plate?.MaterialName;
+                string plateCode       = plate?.Code;
+                string plateDimensions = plate != null
+                    ? $"{plate.Width:0.#} × {plate.Height:0.#} × {plate.Thickness:0.#} mm"
+                    : $"{plateWidth:0.#} × {plateHeight:0.#} mm";
+
+                var record = new NestRecord
+                {
+                    ProjectId       = DatabaseService.CurrentProject.Id,
+                    DrawingId       = plan.DrawingId != Guid.Empty ? plan.DrawingId : (Guid?)null,
+                    Name            = !string.IsNullOrEmpty(plan.DrawingName)
+                                        ? plan.DrawingName
+                                        : $"Nest_{DateTime.Now:yyyy-MM-dd_HHmmss}",
+                    CreatedAt       = DateTime.UtcNow,
+                    MaterialName    = materialName,
+                    PlateCode       = plateCode,
+                    PlateDimensions = plateDimensions,
+                    PartCount       = nestingResult.PlacedParts.Count,
+                    Efficiency      = nestingResult.Efficiency,
+                    DwgPath         = plan.OutputPath
+                };
+
+                DatabaseService.CreateNest(record);
+            }
+            catch (System.Exception ex)
+            {
+                WriteMessageSafe($"\nNote: nest record DB insert failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
         /// MCQuickNest - Quick nesting with default plate size (2440x1220).
         /// </summary>
         [CommandMethod("MCQuickNest", CommandFlags.Session)]
@@ -1683,6 +1730,7 @@ namespace MCConstructor
                         nestPlan.PropertiesToStamp);
 
                     RegisterNestDrawingIfSaved(nestPlan, nestingResult);
+                    RegisterNestRecord(nestPlan, nestingResult, null, 2440, 1220);
 
                     // The active document just changed; use the safe variant.
                     WriteMessageSafe($"\nQuick nest complete: {nestingResult.PlacedParts.Count} parts, {nestingResult.Efficiency:F1}% efficiency");
@@ -2173,6 +2221,34 @@ namespace MCConstructor
             catch (System.Exception ex)
             {
                 editor.WriteMessage($"\nImport failed: {ex.Message}");
+            }
+        }
+
+        // ==================== NEST MANAGER ====================
+
+        /// <summary>
+        /// MCNestManager - Open the Nest Manager to review, export (Send to Cut),
+        /// and track cut status for all nesting runs in the current project.
+        /// </summary>
+        [CommandMethod("MCNestManager", CommandFlags.Session)]
+        public void NestManager()
+        {
+            var doc    = Application.DocumentManager.MdiActiveDocument;
+            var editor = doc.Editor;
+
+            if (DatabaseService.CurrentProject == null)
+            {
+                editor.WriteMessage("\nNo project open. Use MCOpenProject first.");
+                return;
+            }
+
+            var window = new NestManagerWindow();
+            Application.ShowModalWindow(window);
+
+            if (!string.IsNullOrEmpty(window.RequestedOpenPath) && File.Exists(window.RequestedOpenPath))
+            {
+                try { Application.DocumentManager.Open(window.RequestedOpenPath, false); }
+                catch (System.Exception ex) { editor.WriteMessage($"\nCould not open drawing: {ex.Message}"); }
             }
         }
     }
