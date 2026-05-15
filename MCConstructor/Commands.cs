@@ -1796,66 +1796,82 @@ namespace MCConstructor
 
             if (selResult.Status == PromptStatus.OK && selResult.Value.Count > 0)
             {
-                // Clone all path curves before closing the transaction so we can
-                // use their geometry after the transaction is committed.
-                var paths = new List<Curve>();
+                // Read line geometry in-transaction; collect curve ObjectIds for deferred sweep.
+                var lineGeometry = new List<(Point3d Start, Vector3d Dir, double Len)>();
+                var curveIds     = new List<ObjectId>();
+
                 using (var tr = db.TransactionManager.StartTransaction())
                 {
                     foreach (SelectedObject so in selResult.Value)
                     {
                         var curve = tr.GetObject(so.ObjectId, OpenMode.ForRead) as Curve;
                         if (curve == null) continue;
-                        if (curve is Line ln && ln.Length < 1e-10) continue;
-                        paths.Add((Curve)curve.Clone());
+                        if (curve is Line line)
+                        {
+                            if (line.Length < 1e-10) continue;
+                            lineGeometry.Add((
+                                line.StartPoint,
+                                (line.EndPoint - line.StartPoint).GetNormal(),
+                                line.Length));
+                        }
+                        else
+                        {
+                            curveIds.Add(so.ObjectId);
+                        }
                     }
                     tr.Commit();
                 }
 
-                if (paths.Count == 0)
+                if (lineGeometry.Count == 0 && curveIds.Count == 0)
                 { editor.WriteMessage("\nNo valid curves found in selection."); return; }
 
                 int ok = 0, failed = 0;
-                foreach (var path in paths)
+
+                foreach (var (start, dir, len) in lineGeometry)
                 {
                     try
                     {
-                        List<ObjectId> ids;
-                        if (path is Line line)
-                        {
-                            // Straight line — keep the original fast-extrude path.
-                            var dir = (line.EndPoint - line.StartPoint).GetNormal();
-                            ids = CreateExtrudedProfile(profileDwg.FilePath, line.Length, db);
-                            if (ids.Count == 0) { failed++; continue; }
+                        var ids = CreateExtrudedProfile(profileDwg.FilePath, len, db);
+                        if (ids.Count == 0) { failed++; continue; }
 
-                            var xform = BuildAlignmentTransform(Vector3d.ZAxis, dir, line.StartPoint);
-                            using (var tr = db.TransactionManager.StartTransaction())
+                        var xform = BuildAlignmentTransform(Vector3d.ZAxis, dir, start);
+                        using (var tr = db.TransactionManager.StartTransaction())
+                        {
+                            foreach (var id in ids)
                             {
-                                foreach (var id in ids)
-                                {
-                                    var ent = tr.GetObject(id, OpenMode.ForWrite) as Entity;
-                                    if (ent == null) continue;
-                                    ent.TransformBy(xform);
-                                    PartGeometryHelper.SetProfileXData(ent, profileDwg.Name, tr, db);
-                                }
-                                tr.Commit();
+                                var ent = tr.GetObject(id, OpenMode.ForWrite) as Entity;
+                                if (ent == null) continue;
+                                ent.TransformBy(xform);
+                                PartGeometryHelper.SetProfileXData(ent, profileDwg.Name, tr, db);
                             }
+                            tr.Commit();
                         }
-                        else
-                        {
-                            // Curved path — sweep cross-section along the curve.
-                            ids = CreateExtrudedProfileAlongPath(profileDwg.FilePath, path, db);
-                            if (ids.Count == 0) { failed++; continue; }
+                        ok++;
+                    }
+                    catch (System.Exception ex)
+                    {
+                        editor.WriteMessage($"\nFailed for one line: {ex.Message}");
+                        failed++;
+                    }
+                }
 
-                            using (var tr = db.TransactionManager.StartTransaction())
+                foreach (var curveId in curveIds)
+                {
+                    try
+                    {
+                        // Region is cloned into targetDb; sweep runs entirely inside targetDb.
+                        var ids = CreateExtrudedProfileAlongPath(profileDwg.FilePath, curveId, db);
+                        if (ids.Count == 0) { failed++; continue; }
+
+                        using (var tr = db.TransactionManager.StartTransaction())
+                        {
+                            foreach (var id in ids)
                             {
-                                foreach (var id in ids)
-                                {
-                                    var ent = tr.GetObject(id, OpenMode.ForWrite) as Entity;
-                                    if (ent == null) continue;
-                                    PartGeometryHelper.SetProfileXData(ent, profileDwg.Name, tr, db);
-                                }
-                                tr.Commit();
+                                var ent = tr.GetObject(id, OpenMode.ForWrite) as Entity;
+                                if (ent == null) continue;
+                                PartGeometryHelper.SetProfileXData(ent, profileDwg.Name, tr, db);
                             }
+                            tr.Commit();
                         }
                         ok++;
                     }
@@ -1863,10 +1879,6 @@ namespace MCConstructor
                     {
                         editor.WriteMessage($"\nFailed for one curve: {ex.Message}");
                         failed++;
-                    }
-                    finally
-                    {
-                        path.Dispose();
                     }
                 }
 
@@ -2062,30 +2074,35 @@ namespace MCConstructor
         }
 
         /// <summary>
-        /// Sweeps the profile cross-section along <paramref name="pathCurve"/> using
-        /// Solid3d.ExtrudeAlongPath, which correctly handles curved polylines, splines,
-        /// arcs, and polylines with directional kinks.
-        /// The region is placed at the path's start point and oriented so its normal
-        /// matches the path's starting tangent before the sweep begins.
+        /// Sweeps the profile cross-section along the curve identified by
+        /// <paramref name="pathCurveId"/> using Solid3d.ExtrudeAlongPath.
+        /// The cross-section region is cloned from the profile side-DB into targetDb
+        /// so that the region, path curve, and solid all live in the same database
+        /// during the sweep — which is required by the ObjectARX modeler.
         /// </summary>
         private static List<ObjectId> CreateExtrudedProfileAlongPath(
-            string profileFilePath, Curve pathCurve, Database targetDb)
+            string profileFilePath, ObjectId pathCurveId, Database targetDb)
         {
             var result = new List<ObjectId>();
 
-            double startParam   = pathCurve.StartParam;
-            Point3d startPt     = pathCurve.GetPointAtParameter(startParam);
-            Vector3d derivative = pathCurve.GetFirstDerivative(startParam);
-            if (derivative.Length < 1e-10)
-            { return result; } // degenerate — zero-length tangent at start
-            Vector3d startTangent = derivative.GetNormal();
+            // --- Step 1: build the cross-section region in a side DB and clone it
+            //             into targetDb so the sweep can reference both in one transaction.
+            ObjectId targetMsId;
+            using (var tr = targetDb.TransactionManager.StartTransaction())
+            {
+                var bt = (BlockTable)tr.GetObject(targetDb.BlockTableId, OpenMode.ForRead);
+                targetMsId = bt[BlockTableRecord.ModelSpace];
+                tr.Commit();
+            }
+
+            ObjectId clonedRegionId = ObjectId.Null;
 
             using (var sideDb = new Database(false, true))
             {
                 sideDb.ReadDwgFile(profileFilePath, FileShare.ReadWrite, true, "");
                 sideDb.CloseInput(true);
 
-                var solidIds = new ObjectIdCollection();
+                ObjectId regionObjId = ObjectId.Null;
                 using (var tr = sideDb.TransactionManager.StartTransaction())
                 {
                     var bt = (BlockTable)tr.GetObject(sideDb.BlockTableId, OpenMode.ForRead);
@@ -2103,7 +2120,6 @@ namespace MCConstructor
                     }
 
                     Region regionToExtrude = existingRegion;
-
                     if (regionToExtrude == null && curves.Count > 0)
                     {
                         var created = Region.CreateFromCurves(curves);
@@ -2112,7 +2128,6 @@ namespace MCConstructor
                             var primary = (Region)created[0];
                             ms.AppendEntity(primary);
                             tr.AddNewlyCreatedDBObject(primary, true);
-
                             for (int i = 1; i < created.Count; i++)
                             {
                                 var extra = (Region)created[i];
@@ -2120,59 +2135,57 @@ namespace MCConstructor
                                 catch { }
                                 extra.Dispose();
                             }
-
                             regionToExtrude = primary;
                         }
                     }
 
                     if (regionToExtrude != null)
-                    {
-                        // Orient the region at the start of the path: normal → start tangent.
-                        var xform = BuildAlignmentTransform(Vector3d.ZAxis, startTangent, startPt);
-                        regionToExtrude.TransformBy(xform);
-
-                        // Clone the path into sideDb so ExtrudeAlongPath can reference it.
-                        var pathClone = (Curve)pathCurve.Clone();
-                        ms.AppendEntity(pathClone);
-                        tr.AddNewlyCreatedDBObject(pathClone, true);
-
-                        var solid = new Solid3d();
-                        solid.ExtrudeAlongPath(regionToExtrude, pathClone, 0.0);
-                        ms.AppendEntity(solid);
-                        tr.AddNewlyCreatedDBObject(solid, true);
-                        solidIds.Add(solid.ObjectId);
-                    }
+                        regionObjId = regionToExtrude.ObjectId;
 
                     tr.Commit();
                 }
 
-                if (solidIds.Count == 0) return result;
+                if (regionObjId == ObjectId.Null) return result;
 
-                ObjectId targetMsId;
-                var preExisting = new HashSet<ObjectId>();
-                using (var tr = targetDb.TransactionManager.StartTransaction())
-                {
-                    var bt = (BlockTable)tr.GetObject(targetDb.BlockTableId, OpenMode.ForRead);
-                    targetMsId = bt[BlockTableRecord.ModelSpace];
-                    var ms = (BlockTableRecord)tr.GetObject(targetMsId, OpenMode.ForRead);
-                    foreach (ObjectId id in ms) preExisting.Add(id);
-                    tr.Commit();
-                }
-
-                targetDb.WblockCloneObjects(
-                    solidIds, targetMsId, new IdMapping(),
+                var idsToClone = new ObjectIdCollection { regionObjId };
+                var idMap = new IdMapping();
+                sideDb.WblockCloneObjects(idsToClone, targetMsId, idMap,
                     DuplicateRecordCloning.Replace, false);
 
-                using (var tr = targetDb.TransactionManager.StartTransaction())
-                {
-                    var ms = (BlockTableRecord)tr.GetObject(targetMsId, OpenMode.ForRead);
-                    foreach (ObjectId id in ms)
-                    {
-                        if (!preExisting.Contains(id))
-                            result.Add(id);
-                    }
-                    tr.Commit();
-                }
+                if (idMap.Contains(regionObjId))
+                    clonedRegionId = idMap[regionObjId].Value;
+            }
+
+            if (clonedRegionId == ObjectId.Null) return result;
+
+            // --- Step 2: orient the region at the path start and sweep — all inside targetDb.
+            using (var tr = targetDb.TransactionManager.StartTransaction())
+            {
+                var pathCurve = tr.GetObject(pathCurveId, OpenMode.ForRead) as Curve;
+                if (pathCurve == null) { tr.Abort(); return result; }
+
+                double startParam = pathCurve.StartParam;
+                Point3d startPt   = pathCurve.GetPointAtParameter(startParam);
+                Vector3d deriv    = pathCurve.GetFirstDerivative(startParam);
+                if (deriv.Length < 1e-10) { tr.Abort(); return result; }
+                Vector3d startTangent = deriv.GetNormal();
+
+                var region = tr.GetObject(clonedRegionId, OpenMode.ForWrite) as Region;
+                if (region == null) { tr.Abort(); return result; }
+
+                var xform = BuildAlignmentTransform(Vector3d.ZAxis, startTangent, startPt);
+                region.TransformBy(xform);
+
+                var ms = (BlockTableRecord)tr.GetObject(targetMsId, OpenMode.ForWrite);
+
+                var solid = new Solid3d();
+                solid.ExtrudeAlongPath(region, pathCurve, 0.0);
+                ms.AppendEntity(solid);
+                tr.AddNewlyCreatedDBObject(solid, true);
+                result.Add(solid.ObjectId);
+
+                region.Erase();
+                tr.Commit();
             }
 
             return result;
