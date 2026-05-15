@@ -1780,62 +1780,93 @@ namespace MCConstructor
             // ---------------------------------------------------------------
             var db = doc.Database;
 
-            var lineFilter = new SelectionFilter(new[]
+            var curveFilter = new SelectionFilter(new[]
             {
-                new TypedValue((int)DxfCode.Start, "LINE")
+                new TypedValue((int)DxfCode.Operator, "<OR"),
+                new TypedValue((int)DxfCode.Start, "LINE"),
+                new TypedValue((int)DxfCode.Start, "LWPOLYLINE"),
+                new TypedValue((int)DxfCode.Start, "SPLINE"),
+                new TypedValue((int)DxfCode.Start, "ARC"),
+                new TypedValue((int)DxfCode.Start, "POLYLINE"),
+                new TypedValue((int)DxfCode.Operator, "OR>"),
             });
 
-            editor.WriteMessage("\nSelect lines to follow (or press Enter to specify insertion point):");
-            var selResult = editor.GetSelection(lineFilter);
+            editor.WriteMessage("\nSelect lines/polylines/splines to follow (or press Enter to specify insertion point):");
+            var selResult = editor.GetSelection(curveFilter);
 
             if (selResult.Status == PromptStatus.OK && selResult.Value.Count > 0)
             {
-                // --- Multi-line mode -------------------------------------------
-                // Read all line geometry first, then create one solid per line.
-                var lines = new List<(Point3d Start, Vector3d Dir, double Len)>();
+                // Clone all path curves before closing the transaction so we can
+                // use their geometry after the transaction is committed.
+                var paths = new List<Curve>();
                 using (var tr = db.TransactionManager.StartTransaction())
                 {
                     foreach (SelectedObject so in selResult.Value)
                     {
-                        var line = tr.GetObject(so.ObjectId, OpenMode.ForRead) as Line;
-                        if (line == null || line.Length < 1e-10) continue;
-                        lines.Add((
-                            line.StartPoint,
-                            (line.EndPoint - line.StartPoint).GetNormal(),
-                            line.Length));
+                        var curve = tr.GetObject(so.ObjectId, OpenMode.ForRead) as Curve;
+                        if (curve == null) continue;
+                        if (curve is Line ln && ln.Length < 1e-10) continue;
+                        paths.Add((Curve)curve.Clone());
                     }
                     tr.Commit();
                 }
 
-                if (lines.Count == 0)
-                { editor.WriteMessage("\nNo valid lines found in selection."); return; }
+                if (paths.Count == 0)
+                { editor.WriteMessage("\nNo valid curves found in selection."); return; }
 
                 int ok = 0, failed = 0;
-                foreach (var (start, dir, len) in lines)
+                foreach (var path in paths)
                 {
                     try
                     {
-                        var ids = CreateExtrudedProfile(profileDwg.FilePath, len, db);
-                        if (ids.Count == 0) { failed++; continue; }
-
-                        var xform = BuildAlignmentTransform(Vector3d.ZAxis, dir, start);
-                        using (var tr = db.TransactionManager.StartTransaction())
+                        List<ObjectId> ids;
+                        if (path is Line line)
                         {
-                            foreach (var id in ids)
+                            // Straight line — keep the original fast-extrude path.
+                            var dir = (line.EndPoint - line.StartPoint).GetNormal();
+                            ids = CreateExtrudedProfile(profileDwg.FilePath, line.Length, db);
+                            if (ids.Count == 0) { failed++; continue; }
+
+                            var xform = BuildAlignmentTransform(Vector3d.ZAxis, dir, line.StartPoint);
+                            using (var tr = db.TransactionManager.StartTransaction())
                             {
-                                var ent = tr.GetObject(id, OpenMode.ForWrite) as Entity;
-                                if (ent == null) continue;
-                                ent.TransformBy(xform);
-                                PartGeometryHelper.SetProfileXData(ent, profileDwg.Name, tr, db);
+                                foreach (var id in ids)
+                                {
+                                    var ent = tr.GetObject(id, OpenMode.ForWrite) as Entity;
+                                    if (ent == null) continue;
+                                    ent.TransformBy(xform);
+                                    PartGeometryHelper.SetProfileXData(ent, profileDwg.Name, tr, db);
+                                }
+                                tr.Commit();
                             }
-                            tr.Commit();
+                        }
+                        else
+                        {
+                            // Curved path — sweep cross-section along the curve.
+                            ids = CreateExtrudedProfileAlongPath(profileDwg.FilePath, path, db);
+                            if (ids.Count == 0) { failed++; continue; }
+
+                            using (var tr = db.TransactionManager.StartTransaction())
+                            {
+                                foreach (var id in ids)
+                                {
+                                    var ent = tr.GetObject(id, OpenMode.ForWrite) as Entity;
+                                    if (ent == null) continue;
+                                    PartGeometryHelper.SetProfileXData(ent, profileDwg.Name, tr, db);
+                                }
+                                tr.Commit();
+                            }
                         }
                         ok++;
                     }
                     catch (System.Exception ex)
                     {
-                        editor.WriteMessage($"\nFailed for one line: {ex.Message}");
+                        editor.WriteMessage($"\nFailed for one curve: {ex.Message}");
                         failed++;
+                    }
+                    finally
+                    {
+                        path.Dispose();
                     }
                 }
 
@@ -2015,6 +2046,123 @@ namespace MCConstructor
                     DuplicateRecordCloning.Replace, false);
 
                 // Collect what was added.
+                using (var tr = targetDb.TransactionManager.StartTransaction())
+                {
+                    var ms = (BlockTableRecord)tr.GetObject(targetMsId, OpenMode.ForRead);
+                    foreach (ObjectId id in ms)
+                    {
+                        if (!preExisting.Contains(id))
+                            result.Add(id);
+                    }
+                    tr.Commit();
+                }
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Sweeps the profile cross-section along <paramref name="pathCurve"/> using
+        /// Solid3d.ExtrudeAlongPath, which correctly handles curved polylines, splines,
+        /// arcs, and polylines with directional kinks.
+        /// The region is placed at the path's start point and oriented so its normal
+        /// matches the path's starting tangent before the sweep begins.
+        /// </summary>
+        private static List<ObjectId> CreateExtrudedProfileAlongPath(
+            string profileFilePath, Curve pathCurve, Database targetDb)
+        {
+            var result = new List<ObjectId>();
+
+            double startParam   = pathCurve.StartParam;
+            Point3d startPt     = pathCurve.GetPointAtParameter(startParam);
+            Vector3d derivative = pathCurve.GetFirstDerivative(startParam);
+            if (derivative.Length < 1e-10)
+            { return result; } // degenerate — zero-length tangent at start
+            Vector3d startTangent = derivative.GetNormal();
+
+            using (var sideDb = new Database(false, true))
+            {
+                sideDb.ReadDwgFile(profileFilePath, FileShare.ReadWrite, true, "");
+                sideDb.CloseInput(true);
+
+                var solidIds = new ObjectIdCollection();
+                using (var tr = sideDb.TransactionManager.StartTransaction())
+                {
+                    var bt = (BlockTable)tr.GetObject(sideDb.BlockTableId, OpenMode.ForRead);
+                    var ms = (BlockTableRecord)tr.GetObject(
+                        bt[BlockTableRecord.ModelSpace], OpenMode.ForWrite);
+
+                    var curves = new DBObjectCollection();
+                    Region existingRegion = null;
+
+                    foreach (ObjectId id in ms)
+                    {
+                        var ent = tr.GetObject(id, OpenMode.ForRead);
+                        if (ent is Region r) { existingRegion = r; break; }
+                        if (ent is Curve c) curves.Add(c);
+                    }
+
+                    Region regionToExtrude = existingRegion;
+
+                    if (regionToExtrude == null && curves.Count > 0)
+                    {
+                        var created = Region.CreateFromCurves(curves);
+                        if (created.Count > 0)
+                        {
+                            var primary = (Region)created[0];
+                            ms.AppendEntity(primary);
+                            tr.AddNewlyCreatedDBObject(primary, true);
+
+                            for (int i = 1; i < created.Count; i++)
+                            {
+                                var extra = (Region)created[i];
+                                try { primary.BooleanOperation(BooleanOperationType.BoolUnite, extra); }
+                                catch { }
+                                extra.Dispose();
+                            }
+
+                            regionToExtrude = primary;
+                        }
+                    }
+
+                    if (regionToExtrude != null)
+                    {
+                        // Orient the region at the start of the path: normal → start tangent.
+                        var xform = BuildAlignmentTransform(Vector3d.ZAxis, startTangent, startPt);
+                        regionToExtrude.TransformBy(xform);
+
+                        // Clone the path into sideDb so ExtrudeAlongPath can reference it.
+                        var pathClone = (Curve)pathCurve.Clone();
+                        ms.AppendEntity(pathClone);
+                        tr.AddNewlyCreatedDBObject(pathClone, true);
+
+                        var solid = new Solid3d();
+                        solid.ExtrudeAlongPath(regionToExtrude, pathClone);
+                        ms.AppendEntity(solid);
+                        tr.AddNewlyCreatedDBObject(solid, true);
+                        solidIds.Add(solid.ObjectId);
+                    }
+
+                    tr.Commit();
+                }
+
+                if (solidIds.Count == 0) return result;
+
+                ObjectId targetMsId;
+                var preExisting = new HashSet<ObjectId>();
+                using (var tr = targetDb.TransactionManager.StartTransaction())
+                {
+                    var bt = (BlockTable)tr.GetObject(targetDb.BlockTableId, OpenMode.ForRead);
+                    targetMsId = bt[BlockTableRecord.ModelSpace];
+                    var ms = (BlockTableRecord)tr.GetObject(targetMsId, OpenMode.ForRead);
+                    foreach (ObjectId id in ms) preExisting.Add(id);
+                    tr.Commit();
+                }
+
+                targetDb.WblockCloneObjects(
+                    solidIds, targetMsId, new IdMapping(),
+                    DuplicateRecordCloning.Replace, false);
+
                 using (var tr = targetDb.TransactionManager.StartTransaction())
                 {
                     var ms = (BlockTableRecord)tr.GetObject(targetMsId, OpenMode.ForRead);
