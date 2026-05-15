@@ -11,15 +11,17 @@ namespace MCConstructor
         private ListBox _profileListBox;
         private TextBlock _pathLabel;
         private TextBox _lengthBox;
+        private TextBox _rollBox;
 
         public Drawing SelectedDrawing { get; private set; }
         public double Length { get; private set; }
+        public double RollAngle { get; private set; }
 
         public InsertProfileDialog(List<Drawing> profileDrawings)
         {
             Title = "Insert Profile";
             Width = 440;
-            Height = 400;
+            Height = 440;
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
             ResizeMode = ResizeMode.CanResize;
             MinWidth = 320;
@@ -29,6 +31,7 @@ namespace MCConstructor
             var mainGrid = new Grid();
             mainGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Auto) });
             mainGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+            mainGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Auto) });
             mainGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Auto) });
             mainGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Auto) });
             mainGrid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Auto) });
@@ -117,6 +120,46 @@ namespace MCConstructor
             Grid.SetRow(lengthRow, 3);
             mainGrid.Children.Add(lengthRow);
 
+            // Roll angle row
+            var rollRow = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Margin = new Thickness(10, 0, 10, 10)
+            };
+
+            rollRow.Children.Add(new Label
+            {
+                Content = "Roll (°):",
+                Width = 60,
+                VerticalAlignment = VerticalAlignment.Center,
+                Padding = new Thickness(0),
+                Foreground = new SolidColorBrush(Color.FromRgb(200, 200, 200)),
+                Background = D(45, 45, 48),
+            });
+
+            _rollBox = new TextBox
+            {
+                Width = 80, Height = 28,
+                Text = "0",
+                VerticalAlignment = VerticalAlignment.Center,
+                Padding = new Thickness(6, 3, 6, 3),
+                Background = D(37, 37, 38), Foreground = Brushes.White,
+                BorderBrush = D(67, 67, 70), BorderThickness = new Thickness(1),
+            };
+            rollRow.Children.Add(_rollBox);
+
+            rollRow.Children.Add(new TextBlock
+            {
+                Text = "  Rotates the cross-section around the path axis.",
+                VerticalAlignment = VerticalAlignment.Center,
+                Foreground = D(140, 140, 145),
+                FontSize = 11,
+                Margin = new Thickness(6, 0, 0, 0)
+            });
+
+            Grid.SetRow(rollRow, 4);
+            mainGrid.Children.Add(rollRow);
+
             // Buttons
             var buttonRow = new StackPanel
             {
@@ -148,7 +191,7 @@ namespace MCConstructor
             cancelBtn.Click += (s, e) => { DialogResult = false; Close(); };
             buttonRow.Children.Add(cancelBtn);
 
-            Grid.SetRow(buttonRow, 4);
+            Grid.SetRow(buttonRow, 5);
             mainGrid.Children.Add(buttonRow);
 
             Content = mainGrid;
@@ -183,8 +226,16 @@ namespace MCConstructor
                 return;
             }
 
+            if (!double.TryParse(_rollBox.Text, out double roll))
+            {
+                MessageBox.Show("Enter a number for roll angle.", "Invalid Roll Angle",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
             SelectedDrawing = selected;
             Length = len;
+            RollAngle = roll;
             DialogResult = true;
             Close();
         }
