@@ -2244,6 +2244,12 @@ namespace MCConstructor
 
             var window = new NestManagerWindow();
             Application.ShowModalWindow(window);
+
+            if (!string.IsNullOrEmpty(window.RequestedOpenPath) && File.Exists(window.RequestedOpenPath))
+            {
+                try { Application.DocumentManager.Open(window.RequestedOpenPath, false); }
+                catch (System.Exception ex) { editor.WriteMessage($"\nCould not open drawing: {ex.Message}"); }
+            }
         }
     }
 }

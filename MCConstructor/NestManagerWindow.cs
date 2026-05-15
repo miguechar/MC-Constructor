@@ -8,7 +8,6 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using AcDb = Autodesk.AutoCAD.DatabaseServices;
-using Application = Autodesk.AutoCAD.ApplicationServices.Application;
 
 namespace MCConstructor
 {
@@ -30,6 +29,13 @@ namespace MCConstructor
 
         // ── data ─────────────────────────────────────────────────────────────
         private List<NestRow> _rows = new List<NestRow>();
+
+        /// <summary>
+        /// Set when the user double-clicks a nest row to open its DWG.
+        /// The caller must open this path AFTER the dialog closes — AutoCAD
+        /// refuses DocumentManager.Open while a modal dialog is visible.
+        /// </summary>
+        public string RequestedOpenPath { get; private set; }
 
         // ── theme (matches existing dark theme) ───────────────────────────────
         private static SolidColorBrush C(byte r, byte g, byte b) => new SolidColorBrush(Color.FromRgb(r, g, b));
@@ -489,15 +495,12 @@ namespace MCConstructor
             var rec = sel[0].Record;
             if (string.IsNullOrEmpty(rec.DwgPath) || !File.Exists(rec.DwgPath)) return;
 
-            try
-            {
-                Application.DocumentManager.Open(rec.DwgPath, false);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Could not open drawing:\n{ex.Message}",
-                    "Open Nest", MessageBoxButton.OK, MessageBoxImage.Warning);
-            }
+            // Can't call DocumentManager.Open while a modal dialog is visible —
+            // AutoCAD throws "invalid execution context". Store the path and close;
+            // the MCNestManager command will open it after the dialog returns.
+            RequestedOpenPath = rec.DwgPath;
+            DialogResult = true;
+            Close();
         }
 
         // ── helpers ─────────────────────────────────────────────────────────────
