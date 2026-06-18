@@ -126,6 +126,8 @@
     <Compile Include="ProfilePlotService.cs" />
     <Compile Include="MaterialLibraryService.cs" />
     <Compile Include="MaterialLibraryWindow.cs" />
+    <Compile Include="MaterialFillDialog.cs" />
+    <Compile Include="MaterialFillService.cs" />
     <Compile Include="MetadataPalette.cs" />
     <Compile Include="MyPlugin.cs" />
     <Compile Include="NavigatorWindow.cs" />

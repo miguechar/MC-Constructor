@@ -2085,6 +2085,117 @@ namespace MCConstructor
         }
 
         /// <summary>
+        /// MCFillMaterial - Fill selected 2D closed boundaries with sheet
+        /// material from the project material library. Edge pieces are clipped
+        /// to the boundary so the output shows trims and reports sheet count.
+        /// </summary>
+        [CommandMethod("MCFillMaterial")]
+        public void FillMaterial()
+        {
+            var doc = Application.DocumentManager.MdiActiveDocument;
+            if (doc == null) return;
+
+            var db = doc.Database;
+            var editor = doc.Editor;
+
+            if (DatabaseService.CurrentProject == null)
+            {
+                editor.WriteMessage("\nNo project open. Use MCOpenProject first.");
+                return;
+            }
+
+            List<MaterialPlate> plates;
+            try { plates = MaterialLibraryService.GetPlatesForCurrentProject(); }
+            catch (System.Exception ex)
+            {
+                editor.WriteMessage($"\nCould not load material sheets: {ex.Message}");
+                return;
+            }
+
+            if (plates.Count == 0)
+            {
+                editor.WriteMessage("\nNo sheet sizes found. Add a material plate/sheet in MCMaterialLibrary first.");
+                return;
+            }
+
+            var dialog = new MaterialFillDialog();
+            if (Application.ShowModalWindow(dialog) != true || dialog.SelectedPlate == null)
+            {
+                editor.WriteMessage("\nCommand cancelled.");
+                return;
+            }
+
+            var selOptions = new PromptSelectionOptions
+            {
+                MessageForAdding = "\nSelect closed polyline boundary objects to fill: ",
+                AllowDuplicates = false
+            };
+
+            var filter = new SelectionFilter(new[]
+            {
+                new TypedValue((int)DxfCode.Operator, "<OR"),
+                new TypedValue((int)DxfCode.Start, "LWPOLYLINE"),
+                new TypedValue((int)DxfCode.Start, "POLYLINE"),
+                new TypedValue((int)DxfCode.Operator, "OR>")
+            });
+
+            var selResult = editor.GetSelection(selOptions, filter);
+            if (selResult.Status == PromptStatus.Cancel)
+            {
+                editor.WriteMessage("\nCommand cancelled.");
+                return;
+            }
+            if (selResult.Status != PromptStatus.OK || selResult.Value.Count == 0)
+            {
+                editor.WriteMessage("\nNo boundaries selected.");
+                return;
+            }
+
+            int skippedOnExtract;
+            var boundaries = MaterialFillService.ExtractPolylineBoundaries(db, selResult.Value, out skippedOnExtract);
+            if (boundaries.Count == 0)
+            {
+                editor.WriteMessage("\nNo valid closed straight polyline boundaries found.");
+                return;
+            }
+
+            var options = new MaterialFillOptions
+            {
+                Plate = dialog.SelectedPlate,
+                Gap = dialog.Gap,
+                AllowRotate = dialog.AllowRotate
+            };
+
+            try
+            {
+                MaterialFillResult result;
+                using (doc.LockDocument())
+                {
+                    result = MaterialFillService.FillBoundaries(db, boundaries, options);
+                }
+
+                int skipped = skippedOnExtract + result.SkippedBoundaries;
+                editor.WriteMessage("\n=== Material Fill Complete ===");
+                editor.WriteMessage($"\n  Material:       {dialog.SelectedPlate.MaterialName}");
+                editor.WriteMessage($"\n  Sheet:          {dialog.SelectedPlate.Code} ({dialog.SelectedPlate.Width:0.#} x {dialog.SelectedPlate.Height:0.#} mm)");
+                editor.WriteMessage($"\n  Boundaries:     {result.BoundaryCount}");
+                editor.WriteMessage($"\n  Sheets used:    {result.SheetCount}");
+                editor.WriteMessage($"\n  Full sheets:    {result.FullSheets}");
+                editor.WriteMessage($"\n  Trimmed sheets: {result.TrimmedSheets}");
+                if (skipped > 0)
+                    editor.WriteMessage($"\n  Skipped:        {skipped} (requires closed, straight, convex polylines)");
+                editor.WriteMessage("\n==============================");
+
+                try { editor.Regen(); }
+                catch { }
+            }
+            catch (System.Exception ex)
+            {
+                editor.WriteMessage($"\nMaterial fill failed: {ex.Message}");
+            }
+        }
+
+        /// <summary>
         /// MCInsertProfile - Pick a Profile cross-section drawing, then either:
         ///   • select one or more Lines → each solid follows that line's direction and length, or
         ///   • press Enter → pick an insertion point and use the dialog length along Z.
