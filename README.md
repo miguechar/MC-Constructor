@@ -16,7 +16,7 @@ MC Constructor is a C# ObjectARX plugin for AutoCAD 2024 that provides manufactu
 ## Installation
 
 1. Build the solution in Visual Studio 2022 (`Release` configuration).
-2. In AutoCAD, type `NETLOAD` and select `FirstAcadPlugin.dll`.
+2. In AutoCAD, type `NETLOAD` and select `MCConstructor.dll`.
 3. The **MC Constructor** ribbon tab appears automatically.
 4. Run `MCConfigDatabase` to connect to your PostgreSQL database.
 
@@ -364,3 +364,12 @@ Parts carry XData under the application name `MC_CONSTRUCTOR`. The following key
 | **Profiles** | MCInsertProfile, MCCreateProfilePlot |
 | **Nesting** | MCCreateNest, MCQuickNest |
 | **Tools** | MCShowMetadataPalette, MCDrawingProperties, MCMaterialLibrary, MCConfigDatabase |
+
+--- 
+
+## Recursive File Unblocking
+Use this PS command to recursively unblock files when downloading this repo:
+
+```cmd
+Get-ChildItem -Path "C:\path\to\your\folder" -Recurse -Force | Unblock-File
+```

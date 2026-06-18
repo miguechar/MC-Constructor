@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What This Project Is
 
-**FirstAcadPlugin** is a C# ObjectARX extension for AutoCAD 2024 that provides manufacturing design automation: project management, part metadata tracking, material libraries, plate nesting optimization, and structural profile support. It runs inside AutoCAD as a loaded DLL.
+**MCConstructor** is a C# ObjectARX extension for AutoCAD 2024 that provides manufacturing design automation: project management, part metadata tracking, material libraries, plate nesting optimization, and structural profile support. It runs inside AutoCAD as a loaded DLL.
 
 - **Language/Runtime**: C# 7.3 / .NET Framework 4.7.2
 - **Host Application**: AutoCAD 2024 (via ObjectARX .NET API — AcCoreMgd, AcDbMgd, AcMgd, AdWindows)
@@ -13,13 +13,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Build
 
-Open `FirstAcadPlugin.sln` in Visual Studio 2022 and build normally, or:
+Open `MCConstructor.sln` in Visual Studio 2022 and build normally, or:
 
 ```bash
-msbuild FirstAcadPlugin.sln /p:Configuration=Release /p:Platform="Any CPU"
+msbuild MCConstructor.sln /p:Configuration=Release /p:Platform="Any CPU"
 ```
 
-Output: `FirstAcadPlugin\bin\Release\FirstAcadPlugin.dll`
+Output: `MCConstructor\bin\Release\MCConstructor.dll`
 
 ObjectARX 2024 SDK must be installed. Reference paths in `.csproj` expect the ObjectARX DLLs at their default install location.
 
@@ -39,10 +39,10 @@ For debugging, set Visual Studio's start action to the AutoCAD executable, build
 Run SQL migrations once against a PostgreSQL database:
 
 ```bash
-psql -U postgres -d <dbname> -f FirstAcadPlugin/SQL/create_projects_table.sql
-psql -U postgres -d <dbname> -f FirstAcadPlugin/SQL/create_drawings_table.sql
-psql -U postgres -d <dbname> -f FirstAcadPlugin/SQL/create_drawing_parts_table.sql
-psql -U postgres -d <dbname> -f FirstAcadPlugin/SQL/create_materials_and_profiles.sql
+psql -U postgres -d <dbname> -f MCConstructor/SQL/create_projects_table.sql
+psql -U postgres -d <dbname> -f MCConstructor/SQL/create_drawings_table.sql
+psql -U postgres -d <dbname> -f MCConstructor/SQL/create_drawing_parts_table.sql
+psql -U postgres -d <dbname> -f MCConstructor/SQL/create_materials_and_profiles.sql
 ```
 
 ## Architecture
@@ -86,7 +86,7 @@ Parts carry both a DB record and AutoCAD XData (app name `"MC_CONSTRUCTOR"`) tha
 
 ## Key Conventions
 
-- **Namespace**: Everything in `FirstAcadPlugin` — no sub-namespaces.
+- **Namespace**: Everything in `MCConstructor` — no sub-namespaces.
 - **AutoCAD alias**: `using AcadApp = Autodesk.AutoCAD.ApplicationServices.Application` (used throughout).
 - **SQL**: Always parameterized — never build SQL strings by concatenation.
 - **New dialogs**: Prefer WPF (`Window`) over WinForms.
