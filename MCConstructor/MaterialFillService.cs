@@ -21,6 +21,8 @@ namespace MCConstructor
         public int SheetCount { get; set; }
         public int FullSheets { get; set; }
         public int TrimmedSheets { get; set; }
+        public int ReusedTrimmedPieces { get; set; }
+        public int OffcutCount { get; set; }
         public double BoundaryArea { get; set; }
         public double PlacedArea { get; set; }
         public double WasteArea { get; set; }
@@ -33,6 +35,46 @@ namespace MCConstructor
         public List<Point2d> Vertices { get; set; }
     }
 
+    internal class FillPiece
+    {
+        public int BoundaryIndex { get; set; }
+        public int BoundaryPieceIndex { get; set; }
+        public List<Point2d> Polygon { get; set; }
+        public double Area { get; set; }
+        public double Width { get; set; }
+        public double Height { get; set; }
+        public bool IsFullSheet { get; set; }
+        public string SheetLabel { get; set; }
+        public string PieceLabel { get; set; }
+        public bool RotatedForCut { get; set; }
+    }
+
+    internal class FillStockSheet
+    {
+        public int SheetNumber { get; set; }
+        public string Label { get; set; }
+        public List<FillPiece> Pieces { get; } = new List<FillPiece>();
+        public List<FillFreeRect> FreeRects { get; } = new List<FillFreeRect>();
+    }
+
+    internal class FillFreeRect
+    {
+        public double X { get; set; }
+        public double Y { get; set; }
+        public double Width { get; set; }
+        public double Height { get; set; }
+        public FillStockSheet Sheet { get; set; }
+
+        public FillFreeRect(double x, double y, double width, double height, FillStockSheet sheet)
+        {
+            X = x;
+            Y = y;
+            Width = width;
+            Height = height;
+            Sheet = sheet;
+        }
+    }
+
     public static class MaterialFillService
     {
         private const double Tolerance = 1e-6;
@@ -43,6 +85,23 @@ namespace MCConstructor
             MaterialFillOptions options)
         {
             var result = new MaterialFillResult();
+            var validBoundaries = new List<List<Point2d>>();
+
+            foreach (var boundary in boundaries)
+            {
+                if (boundary.Vertices == null || boundary.Vertices.Count < 3 || !IsConvex(boundary.Vertices))
+                {
+                    result.SkippedBoundaries++;
+                    continue;
+                }
+
+                validBoundaries.Add(boundary.Vertices);
+                result.BoundaryCount++;
+                result.BoundaryArea += Math.Abs(SignedArea(boundary.Vertices));
+            }
+
+            var pieces = CreateRequiredPieces(validBoundaries, options, result);
+            var trimSheets = AssignPiecesToStockSheets(pieces, options, result);
 
             using (var tr = db.TransactionManager.StartTransaction())
             {
@@ -51,17 +110,11 @@ namespace MCConstructor
                 ObjectId modelSpaceId = SymbolUtilityServices.GetBlockModelSpaceId(db);
                 var ms = (BlockTableRecord)tr.GetObject(modelSpaceId, OpenMode.ForWrite);
 
-                foreach (var boundary in boundaries)
-                {
-                    if (boundary.Vertices == null || boundary.Vertices.Count < 3 || !IsConvex(boundary.Vertices))
-                    {
-                        result.SkippedBoundaries++;
-                        continue;
-                    }
+                foreach (var piece in pieces)
+                    DrawWallPiece(ms, tr, db, piece);
 
-                    result.BoundaryCount++;
-                    FillOneBoundary(ms, tr, db, boundary.Vertices, options, result);
-                }
+                DrawBoundarySummaries(ms, tr, db, validBoundaries, pieces, options.Plate);
+                DrawRemainingOffcuts(ms, tr, db, validBoundaries, trimSheets, options, result);
 
                 tr.Commit();
             }
@@ -123,68 +176,245 @@ namespace MCConstructor
             return boundaries;
         }
 
-        private static void FillOneBoundary(
-            BlockTableRecord ms,
-            Transaction tr,
-            Database db,
-            List<Point2d> boundary,
+        private static List<FillPiece> CreateRequiredPieces(
+            List<List<Point2d>> boundaries,
             MaterialFillOptions options,
             MaterialFillResult result)
         {
-            double minX = boundary.Min(p => p.X);
-            double maxX = boundary.Max(p => p.X);
-            double minY = boundary.Min(p => p.Y);
-            double maxY = boundary.Max(p => p.Y);
-            double boundaryWidth = maxX - minX;
-            double boundaryHeight = maxY - minY;
+            var pieces = new List<FillPiece>();
 
-            double sheetWidth = options.Plate.Width;
-            double sheetHeight = options.Plate.Height;
-            if (options.AllowRotate && SheetCount(boundaryWidth, boundaryHeight, sheetHeight, sheetWidth, options.Gap) <
-                SheetCount(boundaryWidth, boundaryHeight, sheetWidth, sheetHeight, options.Gap))
+            for (int boundaryIndex = 0; boundaryIndex < boundaries.Count; boundaryIndex++)
             {
-                sheetWidth = options.Plate.Height;
-                sheetHeight = options.Plate.Width;
-            }
+                var boundary = boundaries[boundaryIndex];
+                double minX = boundary.Min(p => p.X);
+                double maxX = boundary.Max(p => p.X);
+                double minY = boundary.Min(p => p.Y);
+                double maxY = boundary.Max(p => p.Y);
+                double boundaryWidth = maxX - minX;
+                double boundaryHeight = maxY - minY;
 
-            double stepX = sheetWidth + options.Gap;
-            double stepY = sheetHeight + options.Gap;
-            double boundaryArea = Math.Abs(SignedArea(boundary));
-            result.BoundaryArea += boundaryArea;
-            int startSheetCount = result.SheetCount;
-            int startTrimmedCount = result.TrimmedSheets;
-
-            int index = 1;
-            for (double y = minY; y < maxY - Tolerance; y += stepY)
-            {
-                for (double x = minX; x < maxX - Tolerance; x += stepX)
+                double sheetWidth = options.Plate.Width;
+                double sheetHeight = options.Plate.Height;
+                if (options.AllowRotate && SheetCount(boundaryWidth, boundaryHeight, sheetHeight, sheetWidth, options.Gap) <
+                    SheetCount(boundaryWidth, boundaryHeight, sheetWidth, sheetHeight, options.Gap))
                 {
-                    var rect = new List<Point2d>
+                    sheetWidth = options.Plate.Height;
+                    sheetHeight = options.Plate.Width;
+                }
+
+                double stepX = sheetWidth + options.Gap;
+                double stepY = sheetHeight + options.Gap;
+                int localIndex = 1;
+
+                for (double y = minY; y < maxY - Tolerance; y += stepY)
+                {
+                    for (double x = minX; x < maxX - Tolerance; x += stepX)
                     {
-                        new Point2d(x, y),
-                        new Point2d(x + sheetWidth, y),
-                        new Point2d(x + sheetWidth, y + sheetHeight),
-                        new Point2d(x, y + sheetHeight)
-                    };
+                        var rect = new List<Point2d>
+                        {
+                            new Point2d(x, y),
+                            new Point2d(x + sheetWidth, y),
+                            new Point2d(x + sheetWidth, y + sheetHeight),
+                            new Point2d(x, y + sheetHeight)
+                        };
 
-                    var clipped = ClipPolygon(rect, boundary);
-                    double area = Math.Abs(SignedArea(clipped));
-                    if (clipped.Count < 3 || area < Tolerance)
-                        continue;
+                        var clipped = ClipPolygon(rect, boundary);
+                        double area = Math.Abs(SignedArea(clipped));
+                        if (clipped.Count < 3 || area < Tolerance)
+                            continue;
 
-                    bool isFull = Math.Abs(area - sheetWidth * sheetHeight) <= Math.Max(1.0, sheetWidth * sheetHeight * 0.0001);
-                    DrawSheet(ms, tr, db, clipped, isFull, options.Plate, index++);
+                        var ext = GetExtents(clipped);
+                        bool isFull = Math.Abs(area - sheetWidth * sheetHeight) <=
+                            Math.Max(1.0, sheetWidth * sheetHeight * 0.0001);
 
-                    result.SheetCount++;
-                    if (isFull) result.FullSheets++;
-                    else result.TrimmedSheets++;
-                    result.PlacedArea += area;
+                        pieces.Add(new FillPiece
+                        {
+                            BoundaryIndex = boundaryIndex,
+                            BoundaryPieceIndex = localIndex++,
+                            Polygon = clipped,
+                            Area = area,
+                            Width = ext.maxX - ext.minX,
+                            Height = ext.maxY - ext.minY,
+                            IsFullSheet = isFull
+                        });
+
+                        result.PlacedArea += area;
+                    }
                 }
             }
 
-            DrawSummary(ms, tr, db, options.Plate, minX, maxY + Math.Max(50, sheetHeight * 0.05),
-                result.SheetCount - startSheetCount,
-                result.TrimmedSheets - startTrimmedCount);
+            return pieces;
+        }
+
+        private static List<FillStockSheet> AssignPiecesToStockSheets(
+            List<FillPiece> pieces,
+            MaterialFillOptions options,
+            MaterialFillResult result)
+        {
+            var trimSheets = new List<FillStockSheet>();
+            int nextSheetNumber = 1;
+
+            foreach (var piece in pieces.Where(p => p.IsFullSheet))
+            {
+                piece.SheetLabel = $"{options.Plate.Code}-{nextSheetNumber++}";
+                piece.PieceLabel = piece.SheetLabel;
+                result.FullSheets++;
+            }
+
+            var trimPieces = pieces
+                .Where(p => !p.IsFullSheet)
+                .OrderByDescending(p => p.Width * p.Height)
+                .ThenByDescending(p => Math.Max(p.Width, p.Height))
+                .ToList();
+
+            foreach (var piece in trimPieces)
+            {
+                FillStockSheet targetSheet = null;
+                FillFreeRect targetRect = null;
+                bool rotated = false;
+
+                FindTrimFit(trimSheets, piece, options.Gap, out targetSheet, out targetRect, out rotated);
+                bool reusedExistingSheet = targetSheet != null && targetSheet.Pieces.Count > 0;
+
+                if (targetSheet == null)
+                {
+                    targetSheet = new FillStockSheet
+                    {
+                        SheetNumber = nextSheetNumber,
+                        Label = $"{options.Plate.Code}-{nextSheetNumber}"
+                    };
+                    nextSheetNumber++;
+                    targetSheet.FreeRects.Add(new FillFreeRect(
+                        0, 0, options.Plate.Width, options.Plate.Height, targetSheet));
+                    trimSheets.Add(targetSheet);
+
+                    FindTrimFit(new[] { targetSheet }, piece, options.Gap, out targetSheet, out targetRect, out rotated);
+                }
+
+                if (targetSheet == null || targetRect == null)
+                    continue;
+
+                PlaceTrimPiece(targetSheet, targetRect, piece, rotated, options.Gap);
+                piece.SheetLabel = targetSheet.Label;
+                piece.PieceLabel = $"{targetSheet.Label}{SuffixForIndex(targetSheet.Pieces.Count)}";
+                piece.RotatedForCut = rotated;
+                targetSheet.Pieces.Add(piece);
+
+                if (reusedExistingSheet)
+                    result.ReusedTrimmedPieces++;
+                result.TrimmedSheets++;
+            }
+
+            result.SheetCount = result.FullSheets + trimSheets.Count;
+            return trimSheets;
+        }
+
+        private static void FindTrimFit(
+            IEnumerable<FillStockSheet> sheets,
+            FillPiece piece,
+            double gap,
+            out FillStockSheet targetSheet,
+            out FillFreeRect targetRect,
+            out bool rotated)
+        {
+            targetSheet = null;
+            targetRect = null;
+            rotated = false;
+
+            double bestWaste = double.MaxValue;
+            foreach (var sheet in sheets)
+            {
+                foreach (var rect in sheet.FreeRects)
+                {
+                    TryCandidate(sheet, rect, piece.Width, piece.Height, false, ref bestWaste,
+                        ref targetSheet, ref targetRect, ref rotated);
+                    TryCandidate(sheet, rect, piece.Height, piece.Width, true, ref bestWaste,
+                        ref targetSheet, ref targetRect, ref rotated);
+                }
+            }
+        }
+
+        private static void TryCandidate(
+            FillStockSheet sheet,
+            FillFreeRect rect,
+            double width,
+            double height,
+            bool isRotated,
+            ref double bestWaste,
+            ref FillStockSheet targetSheet,
+            ref FillFreeRect targetRect,
+            ref bool rotated)
+        {
+            if (width > rect.Width + Tolerance || height > rect.Height + Tolerance)
+                return;
+
+            double waste = rect.Width * rect.Height - width * height;
+            if (waste >= bestWaste)
+                return;
+
+            bestWaste = waste;
+            targetSheet = sheet;
+            targetRect = rect;
+            rotated = isRotated;
+        }
+
+        private static void PlaceTrimPiece(
+            FillStockSheet sheet,
+            FillFreeRect rect,
+            FillPiece piece,
+            bool rotated,
+            double gap)
+        {
+            sheet.FreeRects.Remove(rect);
+
+            double cutWidth = rotated ? piece.Height : piece.Width;
+            double cutHeight = rotated ? piece.Width : piece.Height;
+            double rightWidth = rect.Width - cutWidth - gap;
+            double topHeight = rect.Height - cutHeight - gap;
+
+            if (rightWidth > Tolerance)
+            {
+                sheet.FreeRects.Add(new FillFreeRect(
+                    rect.X + cutWidth + gap,
+                    rect.Y,
+                    rightWidth,
+                    cutHeight,
+                    sheet));
+            }
+
+            if (topHeight > Tolerance)
+            {
+                sheet.FreeRects.Add(new FillFreeRect(
+                    rect.X,
+                    rect.Y + cutHeight + gap,
+                    rect.Width,
+                    topHeight,
+                    sheet));
+            }
+
+            PruneFreeRects(sheet.FreeRects);
+        }
+
+        private static void PruneFreeRects(List<FillFreeRect> rects)
+        {
+            for (int i = rects.Count - 1; i >= 0; i--)
+            {
+                if (rects[i].Width <= Tolerance || rects[i].Height <= Tolerance)
+                    rects.RemoveAt(i);
+            }
+        }
+
+        private static string SuffixForIndex(int zeroBasedIndex)
+        {
+            int value = zeroBasedIndex + 1;
+            string result = "";
+            while (value > 0)
+            {
+                value--;
+                result = (char)('A' + (value % 26)) + result;
+                value /= 26;
+            }
+            return result;
         }
 
         private static int SheetCount(double boundaryWidth, double boundaryHeight, double sheetWidth, double sheetHeight, double gap)
@@ -288,26 +518,162 @@ namespace MCConstructor
             return area * 0.5;
         }
 
-        private static void DrawSheet(
+        private static (double minX, double minY, double maxX, double maxY) GetExtents(List<Point2d> vertices)
+        {
+            return (
+                vertices.Min(p => p.X),
+                vertices.Min(p => p.Y),
+                vertices.Max(p => p.X),
+                vertices.Max(p => p.Y));
+        }
+
+        private static void DrawWallPiece(
             BlockTableRecord ms,
             Transaction tr,
             Database db,
-            List<Point2d> vertices,
-            bool isFull,
-            MaterialPlate plate,
-            int index)
+            FillPiece piece)
         {
             var polyline = new Polyline();
             polyline.SetDatabaseDefaults(db);
-            for (int i = 0; i < vertices.Count; i++)
-                polyline.AddVertexAt(i, vertices[i], 0, 0, 0);
+            for (int i = 0; i < piece.Polygon.Count; i++)
+                polyline.AddVertexAt(i, piece.Polygon[i], 0, 0, 0);
             polyline.Closed = true;
-            polyline.Layer = isFull ? "MC_MATERIAL_FILL" : "MC_MATERIAL_TRIM";
-            polyline.ColorIndex = isFull ? (short)3 : (short)30;
+            polyline.Layer = piece.IsFullSheet ? "MC_MATERIAL_FILL" : "MC_MATERIAL_TRIM";
+            polyline.ColorIndex = piece.IsFullSheet ? (short)3 : (short)30;
             ms.AppendEntity(polyline);
             tr.AddNewlyCreatedDBObject(polyline, true);
 
-            var ext = polyline.GeometricExtents;
+            DrawCenteredLabel(ms, tr, db, piece.PieceLabel, polyline.GeometricExtents, "MC_MATERIAL_LABELS", 7);
+        }
+
+        private static void DrawBoundarySummaries(
+            BlockTableRecord ms,
+            Transaction tr,
+            Database db,
+            List<List<Point2d>> boundaries,
+            List<FillPiece> pieces,
+            MaterialPlate plate)
+        {
+            for (int i = 0; i < boundaries.Count; i++)
+            {
+                var ext = GetExtents(boundaries[i]);
+                int sheetRefs = pieces
+                    .Where(p => p.BoundaryIndex == i)
+                    .Select(p => p.SheetLabel)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .Count();
+                int trimPieces = pieces.Count(p => p.BoundaryIndex == i && !p.IsFullSheet);
+
+                var info = new DBText();
+                info.SetDatabaseDefaults(db);
+                info.TextString = $"{plate.MaterialName} {plate.Code}: {sheetRefs} sheet ref(s), {trimPieces} trim piece(s)";
+                info.Height = 25;
+                info.Layer = "MC_MATERIAL_LABELS";
+                info.ColorIndex = 7;
+                info.Position = new Point3d(ext.minX, ext.maxY + Math.Max(50, plate.Height * 0.05), 0);
+                ms.AppendEntity(info);
+                tr.AddNewlyCreatedDBObject(info, true);
+            }
+        }
+
+        private static void DrawRemainingOffcuts(
+            BlockTableRecord ms,
+            Transaction tr,
+            Database db,
+            List<List<Point2d>> boundaries,
+            List<FillStockSheet> trimSheets,
+            MaterialFillOptions options,
+            MaterialFillResult result)
+        {
+            if (boundaries.Count == 0 || trimSheets.Count == 0)
+                return;
+
+            double minBoundaryX = boundaries.Min(b => b.Min(p => p.X));
+            double maxBoundaryY = boundaries.Max(b => b.Max(p => p.Y));
+            double cursorX = minBoundaryX - options.Plate.Width - Math.Max(250, options.Plate.Width * 0.15);
+            double cursorY = maxBoundaryY;
+            double rowGap = Math.Max(40, options.Plate.Height * 0.03);
+
+            foreach (var sheet in trimSheets)
+            {
+                var usableOffcuts = sheet.FreeRects
+                    .Where(r => r.Width > Tolerance && r.Height > Tolerance)
+                    .OrderByDescending(r => r.Width * r.Height)
+                    .ToList();
+
+                if (usableOffcuts.Count == 0)
+                    continue;
+
+                string cutFrom = string.Join(", ", sheet.Pieces.Select(p => p.PieceLabel));
+                DrawOffcutHeader(ms, tr, db, sheet.Label, cutFrom, cursorX, cursorY + 35);
+
+                double localY = cursorY;
+                foreach (var offcut in usableOffcuts)
+                {
+                    DrawOffcut(ms, tr, db, offcut, cursorX, localY - offcut.Height, sheet.Label, cutFrom);
+                    localY -= offcut.Height + rowGap;
+                    result.OffcutCount++;
+                }
+
+                cursorX -= options.Plate.Width + Math.Max(250, options.Plate.Width * 0.15);
+            }
+        }
+
+        private static void DrawOffcutHeader(
+            BlockTableRecord ms,
+            Transaction tr,
+            Database db,
+            string sheetLabel,
+            string cutFrom,
+            double x,
+            double y)
+        {
+            var header = new DBText();
+            header.SetDatabaseDefaults(db);
+            header.TextString = $"{sheetLabel} offcuts from {cutFrom}";
+            header.Height = 22;
+            header.Layer = "MC_MATERIAL_LABELS";
+            header.ColorIndex = 7;
+            header.Position = new Point3d(x, y, 0);
+            ms.AppendEntity(header);
+            tr.AddNewlyCreatedDBObject(header, true);
+        }
+
+        private static void DrawOffcut(
+            BlockTableRecord ms,
+            Transaction tr,
+            Database db,
+            FillFreeRect offcut,
+            double x,
+            double y,
+            string sheetLabel,
+            string cutFrom)
+        {
+            var polyline = new Polyline();
+            polyline.SetDatabaseDefaults(db);
+            polyline.AddVertexAt(0, new Point2d(x, y), 0, 0, 0);
+            polyline.AddVertexAt(1, new Point2d(x + offcut.Width, y), 0, 0, 0);
+            polyline.AddVertexAt(2, new Point2d(x + offcut.Width, y + offcut.Height), 0, 0, 0);
+            polyline.AddVertexAt(3, new Point2d(x, y + offcut.Height), 0, 0, 0);
+            polyline.Closed = true;
+            polyline.Layer = "MC_MATERIAL_OFFCUT";
+            polyline.ColorIndex = 2;
+            ms.AppendEntity(polyline);
+            tr.AddNewlyCreatedDBObject(polyline, true);
+
+            string label = $"OFFCUT {sheetLabel}\nfrom {cutFrom}\n{offcut.Width:0.#} x {offcut.Height:0.#}";
+            DrawCenteredLabel(ms, tr, db, label, polyline.GeometricExtents, "MC_MATERIAL_LABELS", 7);
+        }
+
+        private static void DrawCenteredLabel(
+            BlockTableRecord ms,
+            Transaction tr,
+            Database db,
+            string text,
+            Extents3d ext,
+            string layer,
+            short colorIndex)
+        {
             double width = ext.MaxPoint.X - ext.MinPoint.X;
             double height = ext.MaxPoint.Y - ext.MinPoint.Y;
             if (width < 80 || height < 30)
@@ -317,39 +683,24 @@ namespace MCConstructor
             double cy = (ext.MinPoint.Y + ext.MaxPoint.Y) / 2;
             double textHeight = Math.Max(8, Math.Min(35, Math.Min(width, height) / 8));
 
-            var label = new DBText();
-            label.SetDatabaseDefaults(db);
-            label.TextString = $"{plate.Code}-{index}{(isFull ? "" : " TRIM")}";
-            label.Height = textHeight;
-            label.Layer = "MC_MATERIAL_LABELS";
-            label.ColorIndex = 7;
-            label.Position = new Point3d(cx, cy, 0);
-            label.HorizontalMode = TextHorizontalMode.TextCenter;
-            label.VerticalMode = TextVerticalMode.TextVerticalMid;
-            label.AlignmentPoint = new Point3d(cx, cy, 0);
-            ms.AppendEntity(label);
-            tr.AddNewlyCreatedDBObject(label, true);
-        }
-
-        private static void DrawSummary(
-            BlockTableRecord ms,
-            Transaction tr,
-            Database db,
-            MaterialPlate plate,
-            double x,
-            double y,
-            int totalSheets,
-            int trimmedSheets)
-        {
-            var info = new DBText();
-            info.SetDatabaseDefaults(db);
-            info.TextString = $"{plate.MaterialName} {plate.Code}: {totalSheets} sheet(s), {trimmedSheets} trimmed";
-            info.Height = 25;
-            info.Layer = "MC_MATERIAL_LABELS";
-            info.ColorIndex = 7;
-            info.Position = new Point3d(x, y, 0);
-            ms.AppendEntity(info);
-            tr.AddNewlyCreatedDBObject(info, true);
+            string[] lines = (text ?? "").Split(new[] { '\n' }, StringSplitOptions.None);
+            double totalHeight = textHeight * lines.Length;
+            for (int i = 0; i < lines.Length; i++)
+            {
+                var label = new DBText();
+                label.SetDatabaseDefaults(db);
+                label.TextString = lines[i];
+                label.Height = textHeight;
+                label.Layer = layer;
+                label.ColorIndex = colorIndex;
+                double y = cy + totalHeight / 2 - i * textHeight - textHeight / 2;
+                label.Position = new Point3d(cx, y, 0);
+                label.HorizontalMode = TextHorizontalMode.TextCenter;
+                label.VerticalMode = TextVerticalMode.TextVerticalMid;
+                label.AlignmentPoint = new Point3d(cx, y, 0);
+                ms.AppendEntity(label);
+                tr.AddNewlyCreatedDBObject(label, true);
+            }
         }
 
         private static void EnsureLayers(Database db, Transaction tr)
@@ -357,6 +708,7 @@ namespace MCConstructor
             var lt = (LayerTable)tr.GetObject(db.LayerTableId, OpenMode.ForWrite);
             CreateLayerIfNotExists(lt, tr, "MC_MATERIAL_FILL", 3);
             CreateLayerIfNotExists(lt, tr, "MC_MATERIAL_TRIM", 30);
+            CreateLayerIfNotExists(lt, tr, "MC_MATERIAL_OFFCUT", 2);
             CreateLayerIfNotExists(lt, tr, "MC_MATERIAL_LABELS", 7);
         }
 

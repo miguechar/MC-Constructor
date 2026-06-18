@@ -2181,7 +2181,9 @@ namespace MCConstructor
                 editor.WriteMessage($"\n  Boundaries:     {result.BoundaryCount}");
                 editor.WriteMessage($"\n  Sheets used:    {result.SheetCount}");
                 editor.WriteMessage($"\n  Full sheets:    {result.FullSheets}");
-                editor.WriteMessage($"\n  Trimmed sheets: {result.TrimmedSheets}");
+                editor.WriteMessage($"\n  Trim pieces:    {result.TrimmedSheets}");
+                editor.WriteMessage($"\n  Reused trims:   {result.ReusedTrimmedPieces}");
+                editor.WriteMessage($"\n  Offcuts drawn:  {result.OffcutCount}");
                 if (skipped > 0)
                     editor.WriteMessage($"\n  Skipped:        {skipped} (requires closed, straight, convex polylines)");
                 editor.WriteMessage("\n==============================");
