@@ -114,6 +114,7 @@
     <Compile Include="Commands.cs" />
     <Compile Include="EditPartMetadataDialog.cs" />
     <Compile Include="CreateDrawingDialog.cs" />
+    <Compile Include="DeleteDrawingDialog.cs" />
     <Compile Include="CreateProjectDialog.cs" />
     <Compile Include="DatabaseService.cs" />
     <Compile Include="DialogTheme.cs" />

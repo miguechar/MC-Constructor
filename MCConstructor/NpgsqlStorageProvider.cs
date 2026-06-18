@@ -1,6 +1,7 @@
 ﻿using Npgsql;
 using System;
 using System.Collections.Generic;
+using System.IO;
 
 namespace MCConstructor
 {
@@ -279,6 +280,97 @@ namespace MCConstructor
                     cmd.ExecuteNonQuery();
                 }
             }
+        }
+
+        public int DeleteDrawing(Guid drawingId, string drawingName, string filePath)
+        {
+            if (DatabaseService.CurrentProject == null)
+                throw new InvalidOperationException("No project open. Use MCOpenProject first.");
+
+            using (var conn = new NpgsqlConnection(_connectionString))
+            {
+                conn.Open();
+                using (var tx = conn.BeginTransaction())
+                {
+                    int partsDeleted;
+
+                    using (var cmd = new NpgsqlCommand(BuildDeletePartsSql(drawingName, filePath), conn, tx))
+                    {
+                        cmd.Parameters.AddWithValue("projectId", DatabaseService.CurrentProject.Id);
+                        AddSourceNameParameters(cmd, drawingName, filePath);
+                        partsDeleted = cmd.ExecuteNonQuery();
+                    }
+
+                    int drawingsDeleted;
+                    using (var cmd = new NpgsqlCommand(
+                        @"DELETE FROM public.drawings
+                          WHERE id = @id AND project_id = @projectId", conn, tx))
+                    {
+                        cmd.Parameters.AddWithValue("id", drawingId);
+                        cmd.Parameters.AddWithValue("projectId", DatabaseService.CurrentProject.Id);
+                        drawingsDeleted = cmd.ExecuteNonQuery();
+                    }
+
+                    if (drawingsDeleted != 1)
+                    {
+                        tx.Rollback();
+                        throw new InvalidOperationException("Drawing was not found in the current project.");
+                    }
+
+                    tx.Commit();
+                    return partsDeleted;
+                }
+            }
+        }
+
+        private static string BuildDeletePartsSql(string drawingName, string filePath)
+        {
+            var names = DrawingSourceNames(drawingName, filePath);
+            var predicates = new List<string>();
+            for (int i = 0; i < names.Count; i++)
+                predicates.Add($"LOWER(source_drawing_name) = LOWER(@sourceName{i})");
+
+            return @"DELETE FROM public.drawing_parts
+                     WHERE project_id = @projectId
+                       AND (" + string.Join(" OR ", predicates) + ")";
+        }
+
+        private static void AddSourceNameParameters(NpgsqlCommand cmd, string drawingName, string filePath)
+        {
+            var names = DrawingSourceNames(drawingName, filePath);
+            for (int i = 0; i < names.Count; i++)
+                cmd.Parameters.AddWithValue("sourceName" + i, names[i]);
+        }
+
+        private static List<string> DrawingSourceNames(string drawingName, string filePath)
+        {
+            var names = new List<string>();
+            AddUnique(names, drawingName);
+
+            if (!string.IsNullOrWhiteSpace(drawingName) &&
+                string.IsNullOrEmpty(Path.GetExtension(drawingName)))
+                AddUnique(names, drawingName + ".dwg");
+
+            if (!string.IsNullOrWhiteSpace(filePath))
+            {
+                AddUnique(names, Path.GetFileName(filePath));
+                AddUnique(names, Path.GetFileNameWithoutExtension(filePath));
+            }
+
+            if (names.Count == 0)
+                names.Add(Guid.NewGuid().ToString());
+            return names;
+        }
+
+        private static void AddUnique(List<string> list, string value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return;
+            foreach (var existing in list)
+            {
+                if (string.Equals(existing, value, StringComparison.OrdinalIgnoreCase))
+                    return;
+            }
+            list.Add(value);
         }
 
         private static Drawing ReadDrawing(NpgsqlDataReader r)

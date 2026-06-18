@@ -883,6 +883,133 @@ namespace MCConstructor
         }
 
         /// <summary>
+        /// MCDeleteDrawing - Remove a registered project drawing, delete its
+        /// .dwg from the project directory, and remove parts sourced from it.
+        /// </summary>
+        [CommandMethod("MCDeleteDrawing", CommandFlags.Session)]
+        public void DeleteDrawing()
+        {
+            var editor = Application.DocumentManager.MdiActiveDocument?.Editor;
+
+            var project = DatabaseService.CurrentProject;
+            if (project == null)
+            {
+                editor?.WriteMessage("\nNo project open. Use MCOpenProject first.");
+                return;
+            }
+            if (string.IsNullOrEmpty(project.Directory))
+            {
+                editor?.WriteMessage("\nCurrent project has no directory recorded. Re-create or update it.");
+                return;
+            }
+
+            List<Drawing> drawings;
+            try
+            {
+                drawings = DatabaseService.GetDrawings();
+            }
+            catch (System.Exception ex)
+            {
+                editor?.WriteMessage($"\nError loading drawings: {ex.Message}");
+                return;
+            }
+
+            if (drawings.Count == 0)
+            {
+                editor?.WriteMessage("\nNo drawings are registered in this project.");
+                return;
+            }
+
+            Drawing selected;
+            try
+            {
+                var dialog = new DeleteDrawingDialog(project, drawings);
+                if (Application.ShowModalWindow(dialog) != true || dialog.SelectedDrawing == null)
+                {
+                    editor?.WriteMessage("\nCommand cancelled.");
+                    return;
+                }
+                selected = dialog.SelectedDrawing;
+            }
+            catch (System.Exception ex)
+            {
+                editor?.WriteMessage($"\nDelete drawing dialog error: {ex.Message}");
+                return;
+            }
+
+            if (!string.IsNullOrEmpty(selected.FilePath) &&
+                File.Exists(selected.FilePath) &&
+                !IsUnderDirectory(selected.FilePath, project.Directory))
+            {
+                editor?.WriteMessage("\nRefusing to delete a file outside the current project directory.");
+                editor?.WriteMessage($"\n  File:    {selected.FilePath}");
+                editor?.WriteMessage($"\n  Project: {project.Directory}");
+                return;
+            }
+
+            if (IsDrawingOpenInSession(selected.FilePath))
+            {
+                editor?.WriteMessage("\nClose this drawing in AutoCAD before deleting it.");
+                editor?.WriteMessage($"\n  {selected.FilePath}");
+                return;
+            }
+
+            string fileStatus = File.Exists(selected.FilePath)
+                ? "The DWG file will be deleted from disk."
+                : "The DWG file is already missing; only registration and parts will be removed.";
+
+            var confirm = System.Windows.MessageBox.Show(
+                $"Delete drawing \"{selected.Name}\"?\n\n{fileStatus}\nParts sourced from this drawing will also be removed.",
+                "Confirm Delete Drawing",
+                System.Windows.MessageBoxButton.YesNo,
+                System.Windows.MessageBoxImage.Warning);
+
+            if (confirm != System.Windows.MessageBoxResult.Yes)
+            {
+                editor?.WriteMessage("\nCommand cancelled.");
+                return;
+            }
+
+            bool fileWasMissing = !File.Exists(selected.FilePath);
+            int partsDeleted;
+            try
+            {
+                partsDeleted = DatabaseService.DeleteDrawing(selected.Id, selected.Name, selected.FilePath);
+            }
+            catch (System.Exception ex)
+            {
+                editor?.WriteMessage($"\nError deleting drawing registration/parts: {ex.Message}");
+                return;
+            }
+
+            bool fileDeleted = false;
+            if (!fileWasMissing)
+            {
+                try
+                {
+                    File.Delete(selected.FilePath);
+                    fileDeleted = true;
+                }
+                catch (System.Exception ex)
+                {
+                    editor?.WriteMessage($"\nDrawing was removed from the project, but the DWG file could not be deleted: {ex.Message}");
+                }
+            }
+
+            try { MetadataPalette.RefreshProjectInfo(); } catch { }
+
+            editor?.WriteMessage("\n========== Drawing Deleted ==========");
+            editor?.WriteMessage($"\n  Name:          {selected.Name}");
+            editor?.WriteMessage($"\n  Registration:  removed");
+            editor?.WriteMessage($"\n  Parts deleted: {partsDeleted}");
+            if (fileWasMissing)
+                editor?.WriteMessage("\n  File:          already missing");
+            else
+                editor?.WriteMessage(fileDeleted ? "\n  File:          deleted" : "\n  File:          delete failed");
+            editor?.WriteMessage("\n=====================================");
+        }
+
+        /// <summary>
         /// Write the new drawing to <paramref name="targetPath"/> and stamp
         /// the MC drawing properties into it.
         ///
@@ -1065,6 +1192,49 @@ namespace MCConstructor
                 ed?.WriteMessage(message);
             }
             catch { /* nothing useful we can do here */ }
+        }
+
+        private static bool IsDrawingOpenInSession(string filePath)
+        {
+            if (string.IsNullOrEmpty(filePath)) return false;
+
+            foreach (Document doc in Application.DocumentManager)
+            {
+                if (SamePath(doc.Name, filePath))
+                    return true;
+            }
+            return false;
+        }
+
+        private static bool IsUnderDirectory(string filePath, string root)
+        {
+            try
+            {
+                string f = Path.GetFullPath(filePath);
+                string r = Path.GetFullPath(root);
+                if (!r.EndsWith(Path.DirectorySeparatorChar.ToString()))
+                    r += Path.DirectorySeparatorChar;
+                return f.StartsWith(r, StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        private static bool SamePath(string a, string b)
+        {
+            try
+            {
+                return string.Equals(
+                    Path.GetFullPath(a),
+                    Path.GetFullPath(b),
+                    StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                return string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+            }
         }
 
         /// <summary>

@@ -210,6 +210,70 @@ namespace MCConstructor
             Save(pf);
         }
 
+        public int DeleteDrawing(Guid drawingId, string drawingName, string filePath)
+        {
+            if (DatabaseService.CurrentProject == null)
+                throw new InvalidOperationException("No project open. Use MCOpenProject first.");
+
+            var pf = Load();
+            string projectId = DatabaseService.CurrentProject.Id.ToString();
+            string drawingIdText = drawingId.ToString();
+
+            int drawingsDeleted = pf.Data.Drawings.RemoveAll(d =>
+                d.ProjectId == projectId && d.Id == drawingIdText);
+            if (drawingsDeleted != 1)
+                throw new InvalidOperationException("Drawing was not found in the current project.");
+
+            var sourceNames = DrawingSourceNames(drawingName, filePath);
+            int partsDeleted = pf.Data.Parts.RemoveAll(p =>
+                p.ProjectId == projectId &&
+                sourceNames.Exists(n => string.Equals(n, p.SourceDrawingName, StringComparison.OrdinalIgnoreCase)));
+
+            foreach (var profile in pf.Data.Profiles)
+            {
+                if (profile.ProjectId == projectId && profile.DrawingId == drawingIdText)
+                    profile.DrawingId = null;
+            }
+
+            foreach (var nest in pf.Data.Nests)
+            {
+                if (nest.ProjectId == projectId && nest.DrawingId == drawingIdText)
+                    nest.DrawingId = null;
+            }
+
+            Save(pf);
+            return partsDeleted;
+        }
+
+        private static List<string> DrawingSourceNames(string drawingName, string filePath)
+        {
+            var names = new List<string>();
+            AddUnique(names, drawingName);
+
+            if (!string.IsNullOrWhiteSpace(drawingName) &&
+                string.IsNullOrEmpty(Path.GetExtension(drawingName)))
+                AddUnique(names, drawingName + ".dwg");
+
+            if (!string.IsNullOrWhiteSpace(filePath))
+            {
+                AddUnique(names, Path.GetFileName(filePath));
+                AddUnique(names, Path.GetFileNameWithoutExtension(filePath));
+            }
+
+            return names;
+        }
+
+        private static void AddUnique(List<string> list, string value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return;
+            foreach (var existing in list)
+            {
+                if (string.Equals(existing, value, StringComparison.OrdinalIgnoreCase))
+                    return;
+            }
+            list.Add(value);
+        }
+
         private static Drawing MapDrawing(DrawingRecord d)
         {
             return new Drawing

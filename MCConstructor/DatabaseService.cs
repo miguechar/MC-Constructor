@@ -380,6 +380,9 @@ namespace MCConstructor
         public static void UpdateDrawingProperties(Guid drawingId, string drawingType, string discipline, string description)
             => StorageRouter.Provider.UpdateDrawingProperties(drawingId, drawingType, discipline, description);
 
+        public static int DeleteDrawing(Guid drawingId, string drawingName, string filePath)
+            => StorageRouter.Provider.DeleteDrawing(drawingId, drawingName, filePath);
+
         // ----------------------------------------------------------------
         // Parts
         // ----------------------------------------------------------------

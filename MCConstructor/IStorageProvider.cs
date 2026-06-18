@@ -19,6 +19,7 @@ namespace MCConstructor
         Drawing FindNestTemplate();
         Drawing GetDrawingByPath(string filePath);
         void UpdateDrawingProperties(Guid drawingId, string drawingType, string discipline, string description);
+        int DeleteDrawing(Guid drawingId, string drawingName, string filePath);
 
         // Parts
         Guid SavePart(DrawingPart part);
