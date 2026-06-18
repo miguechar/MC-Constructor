@@ -2125,6 +2125,24 @@ namespace MCConstructor
                 return;
             }
 
+            var seamFilter = new SelectionFilter(new[]
+            {
+                new TypedValue((int)DxfCode.Operator, "<OR"),
+                new TypedValue((int)DxfCode.Start, "LINE"),
+                new TypedValue((int)DxfCode.Start, "LWPOLYLINE"),
+                new TypedValue((int)DxfCode.Start, "POLYLINE"),
+                new TypedValue((int)DxfCode.Operator, "OR>")
+            });
+
+            var possibleSeams = PromptOptionalSelection(
+                editor,
+                "\nSelect lines where seams CAN land, or press Enter for automatic seams: ",
+                seamFilter);
+            var blockedSeams = PromptOptionalSelection(
+                editor,
+                "\nSelect lines where seams CANNOT land, or press Enter for none: ",
+                seamFilter);
+
             var selOptions = new PromptSelectionOptions
             {
                 MessageForAdding = "\nSelect closed polyline boundary objects to fill: ",
@@ -2163,7 +2181,8 @@ namespace MCConstructor
             {
                 Plate = dialog.SelectedPlate,
                 Gap = dialog.Gap,
-                AllowRotate = dialog.AllowRotate
+                AllowRotate = dialog.AllowRotate,
+                SeamGuides = MaterialFillService.ExtractSeamGuides(db, possibleSeams, blockedSeams)
             };
 
             try
@@ -2184,6 +2203,7 @@ namespace MCConstructor
                 editor.WriteMessage($"\n  Trim pieces:    {result.TrimmedSheets}");
                 editor.WriteMessage($"\n  Reused trims:   {result.ReusedTrimmedPieces}");
                 editor.WriteMessage($"\n  Offcuts drawn:  {result.OffcutCount}");
+                editor.WriteMessage($"\n  Seam guides:    {result.PossibleSeamGuideCount} possible, {result.BlockedSeamGuideCount} blocked");
                 if (skipped > 0)
                     editor.WriteMessage($"\n  Skipped:        {skipped} (requires closed, straight, convex polylines)");
                 editor.WriteMessage("\n==============================");
@@ -2195,6 +2215,22 @@ namespace MCConstructor
             {
                 editor.WriteMessage($"\nMaterial fill failed: {ex.Message}");
             }
+        }
+
+        private static SelectionSet PromptOptionalSelection(Editor editor, string message, SelectionFilter filter)
+        {
+            var options = new PromptSelectionOptions
+            {
+                MessageForAdding = message,
+                AllowDuplicates = false,
+                SingleOnly = false
+            };
+
+            var result = editor.GetSelection(options, filter);
+            if (result.Status == PromptStatus.OK && result.Value != null && result.Value.Count > 0)
+                return result.Value;
+
+            return null;
         }
 
         /// <summary>

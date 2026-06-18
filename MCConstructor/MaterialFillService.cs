@@ -13,6 +13,19 @@ namespace MCConstructor
         public MaterialPlate Plate { get; set; }
         public double Gap { get; set; }
         public bool AllowRotate { get; set; }
+        public MaterialSeamGuides SeamGuides { get; set; } = new MaterialSeamGuides();
+    }
+
+    public class MaterialSeamGuides
+    {
+        public List<double> PossibleVertical { get; } = new List<double>();
+        public List<double> PossibleHorizontal { get; } = new List<double>();
+        public List<double> BlockedVertical { get; } = new List<double>();
+        public List<double> BlockedHorizontal { get; } = new List<double>();
+
+        public int PossibleCount => PossibleVertical.Count + PossibleHorizontal.Count;
+        public int BlockedCount => BlockedVertical.Count + BlockedHorizontal.Count;
+        public bool HasAny => PossibleCount > 0 || BlockedCount > 0;
     }
 
     public class MaterialFillResult
@@ -23,6 +36,8 @@ namespace MCConstructor
         public int TrimmedSheets { get; set; }
         public int ReusedTrimmedPieces { get; set; }
         public int OffcutCount { get; set; }
+        public int PossibleSeamGuideCount { get; set; }
+        public int BlockedSeamGuideCount { get; set; }
         public double BoundaryArea { get; set; }
         public double PlacedArea { get; set; }
         public double WasteArea { get; set; }
@@ -75,6 +90,13 @@ namespace MCConstructor
         }
     }
 
+    internal class FillAxisRun
+    {
+        public double Start { get; set; }
+        public double End { get; set; }
+        public double Length => End - Start;
+    }
+
     public static class MaterialFillService
     {
         private const double Tolerance = 1e-6;
@@ -85,6 +107,8 @@ namespace MCConstructor
             MaterialFillOptions options)
         {
             var result = new MaterialFillResult();
+            result.PossibleSeamGuideCount = options.SeamGuides?.PossibleCount ?? 0;
+            result.BlockedSeamGuideCount = options.SeamGuides?.BlockedCount ?? 0;
             var validBoundaries = new List<List<Point2d>>();
 
             foreach (var boundary in boundaries)
@@ -176,6 +200,55 @@ namespace MCConstructor
             return boundaries;
         }
 
+        public static MaterialSeamGuides ExtractSeamGuides(
+            Database db,
+            SelectionSet possibleSelection,
+            SelectionSet blockedSelection)
+        {
+            var guides = new MaterialSeamGuides();
+
+            using (var tr = db.TransactionManager.StartTransaction())
+            {
+                AddSeamGuidesFromSelection(tr, possibleSelection, guides.PossibleVertical, guides.PossibleHorizontal);
+                AddSeamGuidesFromSelection(tr, blockedSelection, guides.BlockedVertical, guides.BlockedHorizontal);
+                tr.Commit();
+            }
+
+            SortAndDeduplicate(guides.PossibleVertical);
+            SortAndDeduplicate(guides.PossibleHorizontal);
+            SortAndDeduplicate(guides.BlockedVertical);
+            SortAndDeduplicate(guides.BlockedHorizontal);
+            return guides;
+        }
+
+        private static void AddSeamGuidesFromSelection(
+            Transaction tr,
+            SelectionSet selection,
+            List<double> vertical,
+            List<double> horizontal)
+        {
+            if (selection == null) return;
+
+            foreach (SelectedObject selected in selection)
+            {
+                if (selected == null) continue;
+
+                var entity = tr.GetObject(selected.ObjectId, OpenMode.ForRead) as Entity;
+                if (entity == null) continue;
+
+                Extents3d ext;
+                try { ext = entity.GeometricExtents; }
+                catch { continue; }
+
+                double dx = Math.Abs(ext.MaxPoint.X - ext.MinPoint.X);
+                double dy = Math.Abs(ext.MaxPoint.Y - ext.MinPoint.Y);
+                if (dy > dx * 4)
+                    vertical.Add((ext.MinPoint.X + ext.MaxPoint.X) / 2);
+                else if (dx > dy * 4)
+                    horizontal.Add((ext.MinPoint.Y + ext.MaxPoint.Y) / 2);
+            }
+        }
+
         private static List<FillPiece> CreateRequiredPieces(
             List<List<Point2d>> boundaries,
             MaterialFillOptions options,
@@ -204,18 +277,26 @@ namespace MCConstructor
 
                 double stepX = sheetWidth + options.Gap;
                 double stepY = sheetHeight + options.Gap;
+                var xRuns = BuildPanelRuns(
+                    minX, maxX, sheetWidth, stepX,
+                    options.SeamGuides?.PossibleVertical,
+                    options.SeamGuides?.BlockedVertical);
+                var yRuns = BuildPanelRuns(
+                    minY, maxY, sheetHeight, stepY,
+                    options.SeamGuides?.PossibleHorizontal,
+                    options.SeamGuides?.BlockedHorizontal);
                 int localIndex = 1;
 
-                for (double y = minY; y < maxY - Tolerance; y += stepY)
+                foreach (var yRun in yRuns)
                 {
-                    for (double x = minX; x < maxX - Tolerance; x += stepX)
+                    foreach (var xRun in xRuns)
                     {
                         var rect = new List<Point2d>
                         {
-                            new Point2d(x, y),
-                            new Point2d(x + sheetWidth, y),
-                            new Point2d(x + sheetWidth, y + sheetHeight),
-                            new Point2d(x, y + sheetHeight)
+                            new Point2d(xRun.Start, yRun.Start),
+                            new Point2d(xRun.End, yRun.Start),
+                            new Point2d(xRun.End, yRun.End),
+                            new Point2d(xRun.Start, yRun.End)
                         };
 
                         var clipped = ClipPolygon(rect, boundary);
@@ -224,8 +305,8 @@ namespace MCConstructor
                             continue;
 
                         var ext = GetExtents(clipped);
-                        bool isFull = Math.Abs(area - sheetWidth * sheetHeight) <=
-                            Math.Max(1.0, sheetWidth * sheetHeight * 0.0001);
+                        bool isFull = Math.Abs(area - options.Plate.Width * options.Plate.Height) <=
+                            Math.Max(1.0, options.Plate.Width * options.Plate.Height * 0.0001);
 
                         pieces.Add(new FillPiece
                         {
@@ -244,6 +325,68 @@ namespace MCConstructor
             }
 
             return pieces;
+        }
+
+        private static List<FillAxisRun> BuildPanelRuns(
+            double min,
+            double max,
+            double panelLength,
+            double defaultStep,
+            List<double> possibleSeams,
+            List<double> blockedSeams)
+        {
+            var runs = new List<FillAxisRun>();
+            double current = min;
+
+            while (current < max - Tolerance)
+            {
+                double next = ChooseNextSeam(current, max, panelLength, possibleSeams, blockedSeams);
+                if (next <= current + Tolerance)
+                    next = Math.Min(max, current + defaultStep);
+                if (next > max) next = max;
+
+                runs.Add(new FillAxisRun { Start = current, End = next });
+                current = next >= max - Tolerance ? max : next + Math.Max(0, defaultStep - panelLength);
+            }
+
+            return runs;
+        }
+
+        private static double ChooseNextSeam(
+            double current,
+            double max,
+            double panelLength,
+            List<double> possibleSeams,
+            List<double> blockedSeams)
+        {
+            double maxReach = current + panelLength;
+            if (maxReach >= max - Tolerance)
+                return max;
+
+            if (possibleSeams != null && possibleSeams.Count > 0)
+            {
+                var possible = possibleSeams
+                    .Where(s => s > current + Tolerance && s <= maxReach + Tolerance && !ContainsNear(blockedSeams, s))
+                    .OrderByDescending(s => s)
+                    .FirstOrDefault();
+
+                if (possible > current + Tolerance)
+                    return possible;
+            }
+
+            double candidate = maxReach;
+            if (!ContainsNear(blockedSeams, candidate))
+                return candidate;
+
+            var beforeBlocked = blockedSeams
+                .Where(s => s > current + Tolerance && s < candidate + Tolerance)
+                .OrderByDescending(s => s)
+                .FirstOrDefault();
+
+            if (beforeBlocked > current + Tolerance)
+                return Math.Max(current + Tolerance, beforeBlocked - 1.0);
+
+            return candidate;
         }
 
         private static List<FillStockSheet> AssignPiecesToStockSheets(
@@ -501,6 +644,22 @@ namespace MCConstructor
             }
 
             return true;
+        }
+
+        private static bool ContainsNear(List<double> values, double value)
+        {
+            if (values == null) return false;
+            return values.Any(v => Math.Abs(v - value) <= Math.Max(1.0, Math.Abs(value) * 1e-6));
+        }
+
+        private static void SortAndDeduplicate(List<double> values)
+        {
+            values.Sort();
+            for (int i = values.Count - 1; i > 0; i--)
+            {
+                if (Math.Abs(values[i] - values[i - 1]) <= Math.Max(1.0, Math.Abs(values[i]) * 1e-6))
+                    values.RemoveAt(i);
+            }
         }
 
         private static double SignedArea(List<Point2d> vertices)
