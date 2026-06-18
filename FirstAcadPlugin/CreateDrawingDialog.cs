@@ -24,6 +24,7 @@ namespace FirstAcadPlugin
         private TextBlock statusText;
 
         private readonly Project _project;
+        private readonly bool _showTemplateSelector;
 
         public string DrawingType { get; private set; }
         public string Discipline { get; private set; }
@@ -38,10 +39,21 @@ namespace FirstAcadPlugin
         public string TemplatePath { get; private set; }
 
         public CreateDrawingDialog(Project project)
+            : this(project, "Create Drawing - MC Constructor", "Create", null, true)
+        {
+        }
+
+        public CreateDrawingDialog(
+            Project project,
+            string title,
+            string acceptButtonText,
+            string initialDrawingName,
+            bool showTemplateSelector)
         {
             _project = project ?? throw new ArgumentNullException(nameof(project));
+            _showTemplateSelector = showTemplateSelector;
 
-            Title = "Create Drawing - MC Constructor";
+            Title = title;
             Width = 520;
             Height = 520;
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
@@ -69,13 +81,17 @@ namespace FirstAcadPlugin
             disciplineCombo.SelectionChanged += (s, e) => UpdatePathPreview();
             stack.Children.Add(disciplineCombo);
 
-            stack.Children.Add(MakeLabel("Template:"));
+            var templateLabel = MakeLabel("Template:");
+            templateLabel.Visibility = showTemplateSelector ? Visibility.Visible : Visibility.Collapsed;
+            stack.Children.Add(templateLabel);
             templateCombo = DarkCombo(12);
+            templateCombo.Visibility = showTemplateSelector ? Visibility.Visible : Visibility.Collapsed;
             PopulateTemplateCombo();
             stack.Children.Add(templateCombo);
 
             stack.Children.Add(MakeLabel("Drawing Name (no extension):"));
             nameBox = DarkBox(12);
+            nameBox.Text = initialDrawingName ?? "";
             nameBox.TextChanged += (s, e) => UpdatePathPreview();
             stack.Children.Add(nameBox);
 
@@ -121,7 +137,7 @@ namespace FirstAcadPlugin
 
             var createBtn = new Button
             {
-                Content = "Create",
+                Content = acceptButtonText,
                 Padding = new Thickness(20, 6, 20, 6),
                 Margin = new Thickness(0, 0, 8, 0),
                 IsDefault = true,
@@ -298,7 +314,7 @@ namespace FirstAcadPlugin
             Description    = string.IsNullOrWhiteSpace(descriptionBox.Text) ? null : descriptionBox.Text.Trim();
             TargetFilePath = fullPath;
 
-            var tpl = templateCombo.SelectedItem as ComboItem;
+            var tpl = _showTemplateSelector ? templateCombo.SelectedItem as ComboItem : null;
             TemplatePath = string.IsNullOrEmpty(tpl?.Value) ? null : tpl.Value;
 
             DialogResult = true;

@@ -723,6 +723,161 @@ namespace FirstAcadPlugin
         }
 
         /// <summary>
+        /// MCImportDrawing - Copy an existing .dwg into the active project,
+        /// route it by drawing type / discipline, stamp MC drawing properties,
+        /// and register it so MCNavigator can list it.
+        /// </summary>
+        [CommandMethod("MCImportDrawing", CommandFlags.Session)]
+        public void ImportDrawing()
+        {
+            var doc = Application.DocumentManager.MdiActiveDocument;
+            var editor = doc?.Editor;
+
+            var project = DatabaseService.CurrentProject;
+            if (project == null)
+            {
+                editor?.WriteMessage("\nNo project open. Use MCOpenProject or MCCreateProject first.");
+                return;
+            }
+            if (string.IsNullOrEmpty(project.Directory))
+            {
+                editor?.WriteMessage("\nCurrent project has no directory recorded. Re-create or update it.");
+                return;
+            }
+            if (!Directory.Exists(project.Directory))
+            {
+                editor?.WriteMessage($"\nProject directory does not exist on disk:\n  {project.Directory}");
+                return;
+            }
+
+            var fileDialog = new Microsoft.Win32.OpenFileDialog
+            {
+                Title = "Select DWG to Import",
+                Filter = "AutoCAD Drawings (*.dwg)|*.dwg|All Files (*.*)|*.*",
+                CheckFileExists = true,
+                Multiselect = false
+            };
+
+            if (fileDialog.ShowDialog() != true)
+            {
+                editor?.WriteMessage("\nCommand cancelled.");
+                return;
+            }
+
+            string sourcePath = fileDialog.FileName;
+            if (!File.Exists(sourcePath))
+            {
+                editor?.WriteMessage($"\nSource drawing not found: {sourcePath}");
+                return;
+            }
+            if (!string.Equals(Path.GetExtension(sourcePath), ".dwg", StringComparison.OrdinalIgnoreCase))
+            {
+                editor?.WriteMessage("\nSelect a .dwg file to import.");
+                return;
+            }
+
+            var dialog = new CreateDrawingDialog(
+                project,
+                "Import Drawing - MC Constructor",
+                "Import",
+                Path.GetFileNameWithoutExtension(sourcePath),
+                showTemplateSelector: false);
+
+            if (Application.ShowModalWindow(dialog) != true)
+            {
+                editor?.WriteMessage("\nCommand cancelled.");
+                return;
+            }
+
+            try
+            {
+                if (DatabaseService.DrawingNameExistsInCurrentProject(dialog.DrawingName))
+                {
+                    editor?.WriteMessage($"\nA drawing named '{dialog.DrawingName}' already exists in this project.");
+                    return;
+                }
+            }
+            catch (System.Exception ex)
+            {
+                editor?.WriteMessage($"\nError checking for existing drawing: {ex.Message}");
+                return;
+            }
+
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(dialog.TargetFilePath));
+            }
+            catch (System.Exception ex)
+            {
+                WriteMessageSafe($"\nError creating target folder: {ex.Message}");
+                return;
+            }
+
+            var drawingId = Guid.NewGuid();
+
+            try
+            {
+                CopyAndStampDrawingFile(
+                    sourcePath,
+                    dialog.TargetFilePath,
+                    new DrawingPropertiesData
+                    {
+                        DrawingType = dialog.DrawingType,
+                        Discipline  = dialog.Discipline,
+                        ProjectId   = project.Id,
+                        ProjectName = project.Name,
+                        DrawingId   = drawingId,
+                        Description = dialog.Description
+                    });
+            }
+            catch (System.Exception ex)
+            {
+                WriteMessageSafe($"\nError importing drawing file: {ex.Message}");
+                try { if (File.Exists(dialog.TargetFilePath)) File.Delete(dialog.TargetFilePath); }
+                catch { }
+                return;
+            }
+
+            Drawing drawingRow;
+            try
+            {
+                drawingRow = DatabaseService.CreateDrawing(
+                    drawingId,
+                    dialog.DrawingName,
+                    dialog.DrawingType,
+                    dialog.Discipline,
+                    dialog.TargetFilePath,
+                    dialog.Description);
+            }
+            catch (System.Exception ex)
+            {
+                WriteMessageSafe($"\nDrawing file was imported but DB insert failed: {ex.Message}");
+                WriteMessageSafe($"\nFile location: {dialog.TargetFilePath}");
+                return;
+            }
+
+            try { MetadataPalette.RefreshProjectInfo(); } catch { }
+
+            try
+            {
+                Application.DocumentManager.Open(dialog.TargetFilePath, false);
+            }
+            catch (System.Exception ex)
+            {
+                WriteMessageSafe($"\nDrawing imported but could not be opened: {ex.Message}");
+            }
+
+            WriteMessageSafe("\n========== Drawing Imported ==========");
+            WriteMessageSafe($"\n  Name:       {drawingRow.Name}");
+            WriteMessageSafe($"\n  Type:       {DrawingTypes.DisplayName(drawingRow.DrawingType)}");
+            if (!string.IsNullOrEmpty(drawingRow.Discipline))
+                WriteMessageSafe($"\n  Discipline: {drawingRow.Discipline}");
+            WriteMessageSafe($"\n  Source:     {sourcePath}");
+            WriteMessageSafe($"\n  Path:       {drawingRow.FilePath}");
+            WriteMessageSafe("\n=======================================");
+        }
+
+        /// <summary>
         /// Write the new drawing to <paramref name="targetPath"/> and stamp
         /// the MC drawing properties into it.
         ///
@@ -754,7 +909,18 @@ namespace FirstAcadPlugin
                 }
             }
 
-            // Step 2: stamp the MC properties. We re-open as a side-database
+            StampDrawingFile(targetPath, properties);
+        }
+
+        private static void CopyAndStampDrawingFile(string sourcePath, string targetPath, DrawingPropertiesData properties)
+        {
+            File.Copy(sourcePath, targetPath, overwrite: false);
+            StampDrawingFile(targetPath, properties);
+        }
+
+        private static void StampDrawingFile(string targetPath, DrawingPropertiesData properties)
+        {
+            // Stamp the MC properties. We re-open as a side-database
             // (noDocument=true) and SaveAs back to the same path. This
             // works for both the template-copied case and the default-empty
             // case.
