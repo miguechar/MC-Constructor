@@ -50,6 +50,7 @@ namespace MCConstructor
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
             ResizeMode = ResizeMode.CanResize;
             Background = Brush(45, 45, 48);
+            DialogTheme.Apply(this);
             Content = Build(selectedPartsCount);
             Loaded += OnLoaded;
         }
@@ -123,7 +124,7 @@ namespace MCConstructor
             {
                 Width = 200, Height = 26,
                 Background = Brush(37, 37, 38),
-                Foreground = Brushes.Black,
+                Foreground = Brushes.White,
                 BorderBrush = Brush(67, 67, 70),
             };
             _materialFilter.SelectionChanged += OnMaterialFilterChanged;
@@ -253,12 +254,12 @@ namespace MCConstructor
 
             // Populate material filter: "All Materials" + distinct names.
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            _materialFilter.Items.Add(new ComboBoxItem { Content = "All Materials", Tag = null, Foreground = Brushes.Black });
+            _materialFilter.Items.Add(new ComboBoxItem { Content = "All Materials", Tag = null });
             foreach (var plate in _allPlates)
             {
                 string name = plate.MaterialName ?? "";
                 if (seen.Add(name))
-                    _materialFilter.Items.Add(new ComboBoxItem { Content = name, Tag = name, Foreground = Brushes.Black });
+                    _materialFilter.Items.Add(new ComboBoxItem { Content = name, Tag = name });
             }
             _materialFilter.SelectedIndex = 0;
 

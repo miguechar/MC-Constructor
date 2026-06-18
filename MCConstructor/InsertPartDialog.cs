@@ -28,6 +28,7 @@ namespace MCConstructor
             MinWidth = 300;
             MinHeight = 300;
             Background = new SolidColorBrush(Color.FromRgb(45, 45, 48));
+            DialogTheme.Apply(this);
 
             // Create the main container
             var mainGrid = new Grid();

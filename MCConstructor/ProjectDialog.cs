@@ -29,6 +29,7 @@ namespace MCConstructor
             MinWidth = 420;
             MinHeight = 500;
             Background = D(45, 45, 48);
+            DialogTheme.Apply(this);
 
             var mainGrid = new Grid { Margin = new Thickness(16) };
 
@@ -435,6 +436,7 @@ namespace MCConstructor
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
             ResizeMode = ResizeMode.NoResize;
             Background = D2(45, 45, 48);
+            DialogTheme.Apply(this);
 
             var mainStack = new StackPanel { Margin = new Thickness(20) };
 

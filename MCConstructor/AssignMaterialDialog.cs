@@ -23,6 +23,7 @@ namespace MCConstructor
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
             ResizeMode = ResizeMode.NoResize;
             Background = Brush(45, 45, 48);
+            DialogTheme.Apply(this);
 
             var root = new Grid { Margin = new Thickness(18) };
             root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto }); // header

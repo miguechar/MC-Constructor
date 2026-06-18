@@ -26,6 +26,7 @@ namespace MCConstructor
             MinWidth = 340;
             MinHeight = 360;
             Background = D(45, 45, 48);
+            DialogTheme.Apply(this);
 
             var grid = new Grid();
             grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Auto) });

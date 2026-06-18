@@ -38,6 +38,7 @@ namespace MCConstructor
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
             ResizeMode = ResizeMode.CanResize;
             Background = DarkBrush(45, 45, 48);
+            DialogTheme.Apply(this);
             Content = BuildLayout();
             Loaded += (s, e) => RefreshMaterials();
         }
@@ -515,6 +516,7 @@ namespace MCConstructor
             WindowStartupLocation = WindowStartupLocation.CenterOwner;
             ResizeMode = ResizeMode.NoResize;
             Background = MaterialLibraryWindow.DarkBrush(45, 45, 48);
+            DialogTheme.Apply(this);
 
             var g = new Grid { Margin = new Thickness(16) };
             for (int i = 0; i < 4; i++) g.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -582,6 +584,7 @@ namespace MCConstructor
             WindowStartupLocation = WindowStartupLocation.CenterOwner;
             ResizeMode = ResizeMode.NoResize;
             Background = MaterialLibraryWindow.DarkBrush(45, 45, 48);
+            DialogTheme.Apply(this);
 
             var g = new Grid { Margin = new Thickness(16) };
             for (int i = 0; i < 7; i++) g.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });

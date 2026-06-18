@@ -116,6 +116,7 @@
     <Compile Include="CreateDrawingDialog.cs" />
     <Compile Include="CreateProjectDialog.cs" />
     <Compile Include="DatabaseService.cs" />
+    <Compile Include="DialogTheme.cs" />
     <Compile Include="DrawingPropertiesDialog.cs" />
     <Compile Include="DrawingPropertiesManager.cs" />
     <Compile Include="InsertPartDialog.cs" />

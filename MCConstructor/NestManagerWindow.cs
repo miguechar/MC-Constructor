@@ -64,6 +64,7 @@ namespace MCConstructor
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
             ResizeMode  = ResizeMode.CanResize;
             Background  = BgDark;
+            DialogTheme.Apply(this);
 
             Content = BuildLayout();
             Loaded += (_, __) => LoadNests();

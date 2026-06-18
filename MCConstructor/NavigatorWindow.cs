@@ -57,6 +57,7 @@ namespace MCConstructor
             MinHeight = 480;
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
             Background = D(45, 45, 48);
+            DialogTheme.Apply(this);
 
             BuildUI();
             LoadDrawings();

@@ -44,6 +44,7 @@ namespace MCConstructor
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
             ResizeMode = ResizeMode.CanResize;
             Background = D(45, 45, 48);
+            DialogTheme.Apply(this);
 
             Content = Build();
         }

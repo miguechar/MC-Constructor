@@ -45,6 +45,7 @@ namespace MCConstructor
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
             ResizeMode = ResizeMode.NoResize;
             Background = Brush(45, 45, 48);
+            DialogTheme.Apply(this);
 
             var root = new Grid { Margin = new Thickness(18) };
             for (int i = 0; i < 9; i++)

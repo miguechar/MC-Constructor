@@ -27,6 +27,7 @@ namespace MCConstructor
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
             ResizeMode = ResizeMode.NoResize;
             Background = D(45, 45, 48);
+            DialogTheme.Apply(this);
 
             var stack = new StackPanel { Margin = new Thickness(20) };
 
