@@ -365,13 +365,16 @@ namespace MCConstructor
 
             if (possibleSeams != null && possibleSeams.Count > 0)
             {
-                var possible = possibleSeams
+                // "Possible" seams are candidates, not required cuts. Pick
+                // the farthest valid candidate within this sheet span so a
+                // stud layout at 200 mm centres can still use a 2400/2500 mm
+                // board instead of cutting at every stud.
+                var candidates = possibleSeams
                     .Where(s => s > current + Tolerance && s <= maxReach + Tolerance && !ContainsNear(blockedSeams, s))
-                    .OrderByDescending(s => s)
-                    .FirstOrDefault();
+                    .ToList();
 
-                if (possible > current + Tolerance)
-                    return possible;
+                if (candidates.Count > 0)
+                    return candidates.Max();
             }
 
             double candidate = maxReach;
